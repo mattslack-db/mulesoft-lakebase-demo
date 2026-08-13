@@ -1,0 +1,6 @@
+target/
+*.jar
+config-local.yaml
+.env
+*.token
+.DS_Store
