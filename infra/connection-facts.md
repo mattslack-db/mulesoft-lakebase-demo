@@ -37,6 +37,16 @@ Non-secret connection values for the demo environment.
 
 ## Data API (filled in Task 4)
 
+### Enablement Steps (UI action — must be performed by a workspace admin)
+
+1. In the Databricks workspace UI, navigate to **Lakebase** → project `mulesoft-lakebase-demo`.
+2. Select the **Data API** tab and click **Enable**.
+3. Under **Exposed schemas**, add `demo` (the default exposes only `public`; `demo` must be added explicitly).
+4. Once enabled, the UI shows the base URL — copy it and replace the placeholder below.
+
+> The Data API allows the MuleSoft connector to call the Lakebase Postgres REST interface
+> without a JDBC driver. The SP client credentials (OAuth M2M) authenticate the requests.
+
 | Key | Value |
 |-----|-------|
-| `DATA_API_URL` | `<to-be-filled-in-Task-4>` |
+| `DATA_API_URL` | `<pending-UI-enablement>` |
