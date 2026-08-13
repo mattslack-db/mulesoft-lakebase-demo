@@ -49,4 +49,8 @@ Non-secret connection values for the demo environment.
 
 | Key | Value |
 |-----|-------|
-| `DATA_API_URL` | `<pending-UI-enablement>` |
+| `DATA_API_URL` | `https://ep-rough-hill-d1qt6anl.database.us-west-2.cloud.databricks.com/api/2.0/workspace/7474659957052374/rest/databricks_postgres` |
+
+> Tables are addressed as `<DATA_API_URL>/<schema>/<table>` (PostgREST convention).
+> Example: `<DATA_API_URL>/demo/customers`
+> The exact path shape is validated by Task 5's smoke test.
