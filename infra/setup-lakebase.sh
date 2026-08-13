@@ -32,7 +32,7 @@ BRANCH_ID="production"
 ENDPOINT_JSON=$(databricks postgres list-endpoints \
   "projects/${PROJECT_ID}/branches/${BRANCH_ID}" \
   --profile "${PROFILE}" \
-  -o json 2>/dev/null)
+  -o json)
 
 ENDPOINT_PATH=$(python3 -c "
 import json, sys
@@ -65,7 +65,7 @@ print(primary['status']['hosts']['host'])
 DB_JSON=$(databricks postgres list-databases \
   "projects/${PROJECT_ID}/branches/${BRANCH_ID}" \
   --profile "${PROFILE}" \
-  -o json 2>/dev/null)
+  -o json)
 
 PG_DATABASE=$(python3 -c "
 import json, sys
