@@ -23,17 +23,17 @@ Non-secret connection values for the demo environment.
 
 | Key | Value |
 |-----|-------|
-| `PROJECT_ID` | `<to-be-filled-in-Task-2>` |
-| `BRANCH_ID` | `<to-be-filled-in-Task-2>` |
+| `PROJECT_ID` | `mulesoft-lakebase-demo` |
+| `BRANCH_ID` | `production` |
 
 ## Lakebase Endpoint (filled in Task 2)
 
 | Key | Value |
 |-----|-------|
-| `ENDPOINT_ID` | `<to-be-filled-in-Task-2>` |
-| `ENDPOINT_PATH` | `<to-be-filled-in-Task-2>` |
-| `PG_HOST` | `<to-be-filled-in-Task-2>` |
-| `PG_DATABASE` | `<to-be-filled-in-Task-2>` |
+| `ENDPOINT_ID` | `primary` |
+| `ENDPOINT_PATH` | `projects/mulesoft-lakebase-demo/branches/production/endpoints/primary` |
+| `PG_HOST` | `ep-rough-hill-d1qt6anl.database.us-west-2.cloud.databricks.com` |
+| `PG_DATABASE` | `databricks_postgres` |
 
 ## Data API (filled in Task 4)
 
