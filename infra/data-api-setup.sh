@@ -90,7 +90,7 @@ EXISTING=$(curl -s -w "\n%{http_code}" \
   -H "Authorization: Bearer ${WS_TOKEN}" \
   "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}")
 HTTP_STATUS=$(echo "${EXISTING}" | tail -n1)
-EXISTING_BODY=$(echo "${EXISTING}" | head -n-1)
+EXISTING_BODY=$(echo "${EXISTING}" | sed '$d')
 
 if [[ "${HTTP_STATUS}" == "200" ]]; then
   CURRENT_SCHEMAS=$(echo "${EXISTING_BODY}" | python3 -c "
@@ -103,13 +103,18 @@ print(','.join(schemas))
 
   if [[ "${CURRENT_SCHEMAS}" != *"demo"* ]]; then
     echo "  'demo' not in db_schemas — patching..."
-    curl -s -o /dev/null \
+    PATCH1_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
       -X PATCH \
       -H "Authorization: Bearer ${WS_TOKEN}" \
       -H "Content-Type: application/json" \
       -d '{"spec":{"db_schemas":["demo","public"]}}' \
-      "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}?update_mask=spec.db_schemas"
-    echo "  Patched: db_schemas=[\"demo\",\"public\"]"
+      "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}?update_mask=spec.db_schemas")
+    if [[ "${PATCH1_STATUS}" =~ ^2 ]]; then
+      echo "  Patched: db_schemas=[\"demo\",\"public\"] (HTTP ${PATCH1_STATUS}) ✓"
+    else
+      echo "  ERROR: PATCH db_schemas failed (HTTP ${PATCH1_STATUS})" >&2
+      exit 1
+    fi
   else
     echo "  'demo' already in db_schemas — no change needed."
   fi
@@ -122,11 +127,11 @@ else
     -d '{"spec":{"db_schemas":["demo","public"]}}' \
     "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}")
   ENABLE_STATUS=$(echo "${ENABLE_RESP}" | tail -n1)
-  if [[ "${ENABLE_STATUS}" == "200" ]]; then
+  if [[ "${ENABLE_STATUS}" =~ ^20[012]$ ]]; then
     echo "  Data API enabled with db_schemas=[\"demo\",\"public\"] ✓"
   else
     echo "  ERROR: Failed to enable Data API (HTTP ${ENABLE_STATUS})" >&2
-    echo "${ENABLE_RESP}" | head -n-1 >&2
+    echo "${ENABLE_RESP}" | sed '$d' >&2
     exit 1
   fi
 fi
@@ -149,13 +154,18 @@ if [[ "${CURRENT_KEY}" == ".sub" ]]; then
   echo "  jwt_role_claim_key is already '.sub' — no change needed."
 else
   echo "  Current jwt_role_claim_key: '${CURRENT_KEY}' — patching to '.sub'..."
-  curl -s -o /dev/null \
+  PATCH2_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X PATCH \
     -H "Authorization: Bearer ${WS_TOKEN}" \
     -H "Content-Type: application/json" \
     -d '{"spec":{"jwt_role_claim_key":".sub"}}' \
-    "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}?update_mask=spec.jwt_role_claim_key"
-  echo "  Patched: jwt_role_claim_key='.sub' ✓"
+    "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}?update_mask=spec.jwt_role_claim_key")
+  if [[ "${PATCH2_STATUS}" =~ ^2 ]]; then
+    echo "  Patched: jwt_role_claim_key='.sub' (HTTP ${PATCH2_STATUS}) ✓"
+  else
+    echo "  ERROR: PATCH jwt_role_claim_key failed (HTTP ${PATCH2_STATUS})" >&2
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -220,10 +230,10 @@ PG_USER=$(databricks current-user me --profile "${PROFILE}" -o json \
 PSQL="${PSQL:-psql}"
 
 echo "  Attempting: GRANT \"${SP_CLIENT_ID}\" TO authenticator;"
+GRANT_EXIT=0
 GRANT_RESULT=$(PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
   "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-  -c "GRANT \"${SP_CLIENT_ID}\" TO authenticator;" 2>&1)
-GRANT_EXIT=$?
+  -c "GRANT \"${SP_CLIENT_ID}\" TO authenticator;" 2>&1) || GRANT_EXIT=$?
 echo "  Result: ${GRANT_RESULT}"
 
 if [[ ${GRANT_EXIT} -eq 0 ]]; then
