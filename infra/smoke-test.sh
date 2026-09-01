@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROFILE=fe-sandbox-wordpress
+PROFILE=mulesoft-lakebase-demo
 PROJECT=mulesoft-lakebase-demo
 EP=projects/$PROJECT/branches/production/endpoints/primary
-DATA_API_URL=https://ep-rough-hill-d1qt6anl.database.us-west-2.cloud.databricks.com/api/2.0/workspace/7474659957052374/rest/databricks_postgres
+DATA_API_URL=https://<PG_HOST>/api/2.0/workspace/<WORKSPACE_ID>/rest/databricks_postgres
 PSQL=/opt/homebrew/Cellar/postgresql@17/17.9/bin/psql
 
 # --- Chain 1: JDBC/psql path — OAuth token as Postgres password ---
