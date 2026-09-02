@@ -1,0 +1,38 @@
+# ============================================================
+# Stage 1: Build with Maven (JDK 11 required by mule-maven-plugin)
+# Build context: repo root (set by docker-compose.yml)
+# ============================================================
+FROM maven:3.8-eclipse-temurin-11 AS builder
+
+WORKDIR /workspace
+
+# Mirror settings: mirrors everything to repository-master.mulesoft.org
+# (repo.maven.apache.org and repository.mulesoft.org are blocked in corp env)
+COPY maven-settings.xml /workspace/maven-settings.xml
+
+# Copy app source — separate layers so pom-only changes get a dependency cache hit
+COPY mule-data-api/pom.xml         /workspace/mule-data-api/pom.xml
+COPY mule-data-api/mule-artifact.json /workspace/mule-data-api/mule-artifact.json
+COPY mule-data-api/src             /workspace/mule-data-api/src
+
+RUN cd /workspace/mule-data-api \
+    && mvn -s /workspace/maven-settings.xml clean package -q
+
+# ============================================================
+# Stage 2: Mule CE runtime (arm64-compatible)
+# ============================================================
+FROM javastreets/mule:latest
+
+# Deploy the packaged Mule application
+COPY --from=builder /workspace/mule-data-api/target/*-mule-application.jar /opt/mule/apps/
+
+EXPOSE 8081
+
+# ARM64 SAFETY: The image's default entrypoint (/opt/mule/bin/mule) uses the
+# Tanuki Service Wrapper, which has no arm64 binary ("hardware type not
+# recognized"). Override with a direct Java invocation — same runtime, same JARs.
+#
+# Classpath and bootstrap class verified in Task-1 probe.
+# Java wildcard expansion in -classpath is a JVM feature (not shell) so exec
+# form is correct here.
+ENTRYPOINT ["java", "-Dmule.home=/opt/mule", "-Dmule.base=/opt/mule", "-classpath", "/opt/mule/lib/boot/*:/opt/mule/conf", "org.mule.runtime.module.reboot.MuleContainerBootstrap"]
