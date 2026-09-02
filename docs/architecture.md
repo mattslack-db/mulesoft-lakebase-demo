@@ -70,6 +70,7 @@ sequenceDiagram
     end
 
     C->>ML: HTTP request /customers
+    Note over ML,TS: Phase-2 spike — request-time token read is the target design; current authored app uses a bootstrap-token fallback
     ML->>TS: read "lakebase-pg-token"
     TS-->>ML: short-lived credential
     ML->>PG: JDBC (user=SP_UUID, password=credential, sslmode=require)

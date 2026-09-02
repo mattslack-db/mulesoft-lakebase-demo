@@ -56,7 +56,7 @@ curl -H "Authorization: Bearer ${BEARER}" \
   "${DATA_API_URL}/demo/customers?order=id"
 ```
 
-This is the exact pattern used by `infra/smoke-test.sh` (Chain 2 block).
+This is the exact pattern used by `infra/smoke-test.sh` (Data API chain block).
 
 ## PostgREST Verb Mapping
 
@@ -187,3 +187,8 @@ The current live configuration (see `infra/connection-facts.md`):
 `jwt_role_claim_key = ".sub"` tells PostgREST which claim to extract for `SET ROLE`.
 Databricks SP tokens carry the SP's client ID in `.sub`, so this maps directly to the
 role name created by `databricks_create_role()`.
+
+`db_anon_role = demo_api` reflects a shared-role experiment from the investigation phase;
+it is operationally irrelevant because the Databricks Data API proxy bypasses `db_anon_role`
+for Databricks-issued tokens — per-identity routing via the `.sub` claim is used instead.
+It can be safely dropped from the configuration.

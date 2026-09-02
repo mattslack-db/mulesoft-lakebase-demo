@@ -68,7 +68,7 @@ DATA_API_PATH="${BRANCH_PATH}/databases/${DATABASE_ID}/data-api"
 # Resolve workspace host from CLI profile if not provided
 if [[ -z "${WORKSPACE_HOST}" ]]; then
   WORKSPACE_HOST=$(databricks auth describe --profile "${PROFILE}" -o json 2>/dev/null \
-    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('details',{}).get('host','').lstrip('https://'))" 2>/dev/null || true)
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('details',{}).get('host','').removeprefix('https://'))" 2>/dev/null || true)
 fi
 
 if [[ -z "${WORKSPACE_HOST}" ]]; then
@@ -76,7 +76,7 @@ if [[ -z "${WORKSPACE_HOST}" ]]; then
 import configparser, os
 cfg = configparser.ConfigParser()
 cfg.read(os.path.expanduser('~/.databrickscfg'))
-print(cfg.get('${PROFILE}', 'host', fallback='').lstrip('https://').rstrip('/'))
+print(cfg.get('${PROFILE}', 'host', fallback='').removeprefix('https://').rstrip('/'))
 ")
 fi
 
@@ -262,5 +262,5 @@ print(r.get('status',{}).get('url','UNKNOWN'))
 echo "  Data API URL: ${DATA_API_URL}"
 echo ""
 echo "  Verify with:"
-echo "    SP_TOKEN=\$(curl -s -u SP_CLIENT_ID:SP_SECRET https://WORKSPACE/oidc/v1/token -d grant_type=client_credentials&scope=all-apis | jq -r .access_token)"
+echo "    SP_TOKEN=\$(curl -s -u SP_CLIENT_ID:SP_SECRET https://WORKSPACE/oidc/v1/token -d 'grant_type=client_credentials&scope=all-apis' | jq -r .access_token)"
 echo "    curl -H \"Authorization: Bearer \$SP_TOKEN\" \"${DATA_API_URL}/demo/customers?limit=1\""
