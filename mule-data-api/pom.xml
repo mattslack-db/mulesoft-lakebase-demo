@@ -19,15 +19,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!--
-            Connector versions to be reconciled at first `mvn package` in Phase 2.
-            Pin these after running `mvn dependency:tree` against the resolved runtime BOM.
-            mule-http-connector 1.9.x bundles the OAuth extension — no separate oauth module needed.
-        -->
-        <mule.version>4.6.0</mule.version>
-        <mule.http.connector.version>1.9.2</mule.http.connector.version>
-        <mule.secure.properties.version>1.2.6</mule.secure.properties.version>
-        <mule.maven.plugin.version>4.1.1</mule.maven.plugin.version>
+        <!-- CE-compatible connector versions; verified buildable in Task-1 spike -->
+        <mule.version>4.4.0</mule.version>
+        <mule.http.connector.version>1.7.3</mule.http.connector.version>
+        <mule.maven.plugin.version>4.10.0</mule.maven.plugin.version>
     </properties>
 
     <dependencies>
@@ -38,13 +33,16 @@
             <version>${mule.http.connector.version}</version>
             <classifier>mule-plugin</classifier>
         </dependency>
-        <!-- Secure Configuration Properties: resolves ${secure::...} placeholders at runtime -->
+        <!-- OAuth module: provides the oauth namespace used by <oauth:client-credentials-grant-type>
+             inside <http:authentication>. Open-source CE module (org.mule.modules). -->
         <dependency>
-            <groupId>com.mulesoft.modules</groupId>
-            <artifactId>mule-secure-configuration-property-module</artifactId>
-            <version>${mule.secure.properties.version}</version>
+            <groupId>org.mule.modules</groupId>
+            <artifactId>mule-oauth-module</artifactId>
+            <version>1.1.7</version>
             <classifier>mule-plugin</classifier>
         </dependency>
+        <!-- EE mule-secure-configuration-property-module removed (Task 2):
+             secret injected via DATABRICKS_CLIENT_SECRET env var instead. -->
     </dependencies>
 
     <build>
@@ -64,14 +62,8 @@
     <repositories>
         <repository>
             <id>mulesoft-releases</id>
-            <name>MuleSoft Releases Repository</name>
-            <url>https://repository.mulesoft.org/releases/</url>
-            <layout>default</layout>
-        </repository>
-        <repository>
-            <id>anypoint-exchange-v3</id>
-            <name>Anypoint Exchange V3</name>
-            <url>https://maven.anypoint.mulesoft.com/api/v3/maven/</url>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
             <layout>default</layout>
         </repository>
     </repositories>
@@ -79,8 +71,8 @@
     <pluginRepositories>
         <pluginRepository>
             <id>mulesoft-releases</id>
-            <name>MuleSoft Releases Repository</name>
-            <url>https://repository.mulesoft.org/releases/</url>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
             <layout>default</layout>
         </pluginRepository>
     </pluginRepositories>

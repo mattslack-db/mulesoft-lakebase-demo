@@ -20,19 +20,13 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!--
-            Connector / driver versions to be reconciled at first `mvn package` in Phase 2.
-            Pin these after running `mvn dependency:tree` against the resolved runtime BOM.
-            Versions below are the latest stable at authoring time (Phase 3); they may need
-            alignment with the Mule 4.6 runtime BOM and Anypoint connector release train.
-        -->
-        <mule.version>4.6.0</mule.version>
+        <!-- CE-compatible connector/driver versions; verified buildable in Task-1 spike -->
+        <mule.version>4.4.0</mule.version>
         <mule.db.connector.version>1.14.0</mule.db.connector.version>
         <mule.objectstore.connector.version>1.2.1</mule.objectstore.connector.version>
-        <mule.http.connector.version>1.9.2</mule.http.connector.version>
-        <mule.secure.properties.version>1.2.6</mule.secure.properties.version>
-        <postgresql.driver.version>42.7.3</postgresql.driver.version>
-        <mule.maven.plugin.version>4.1.1</mule.maven.plugin.version>
+        <mule.http.connector.version>1.7.3</mule.http.connector.version>
+        <postgresql.driver.version>42.6.0</postgresql.driver.version>
+        <mule.maven.plugin.version>4.10.0</mule.maven.plugin.version>
     </properties>
 
     <dependencies>
@@ -60,20 +54,14 @@
             <classifier>mule-plugin</classifier>
         </dependency>
 
-        <!-- Secure Configuration Properties: resolves ${secure::...} placeholders at runtime -->
-        <dependency>
-            <groupId>com.mulesoft.modules</groupId>
-            <artifactId>mule-secure-configuration-property-module</artifactId>
-            <version>${mule.secure.properties.version}</version>
-            <classifier>mule-plugin</classifier>
-        </dependency>
+        <!-- EE mule-secure-configuration-property-module removed (Task 2):
+             secret injected via DATABRICKS_CLIENT_SECRET env var instead. -->
 
         <!--
             PostgreSQL JDBC Driver.
             Must be packaged inside the Mule application (default scope = compile).
             The DB Connector's generic-connection loads this driver class:
               driverClassName="org.postgresql.Driver"
-            Version reconciled at first `mvn package` in Phase 2.
         -->
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -99,14 +87,8 @@
     <repositories>
         <repository>
             <id>mulesoft-releases</id>
-            <name>MuleSoft Releases Repository</name>
-            <url>https://repository.mulesoft.org/releases/</url>
-            <layout>default</layout>
-        </repository>
-        <repository>
-            <id>anypoint-exchange-v3</id>
-            <name>Anypoint Exchange V3</name>
-            <url>https://maven.anypoint.mulesoft.com/api/v3/maven/</url>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
             <layout>default</layout>
         </repository>
     </repositories>
@@ -114,8 +96,8 @@
     <pluginRepositories>
         <pluginRepository>
             <id>mulesoft-releases</id>
-            <name>MuleSoft Releases Repository</name>
-            <url>https://repository.mulesoft.org/releases/</url>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
             <layout>default</layout>
         </pluginRepository>
     </pluginRepositories>

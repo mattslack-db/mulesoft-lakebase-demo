@@ -36,6 +36,13 @@
         http://www.mulesoft.org/schema/mule/os
           http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
 
+    <!-- Load configuration properties from config.yaml (committed) and
+         config-local.yaml (git-ignored, for local overrides).
+         Mule resolves system/env properties inside YAML values, so
+         databricks.client.secret: "${DATABRICKS_CLIENT_SECRET}" picks up
+         the env var at runtime. -->
+    <configuration-properties file="config.yaml"/>
+
     <!-- ================================================================
          HTTP Listener Config
          Exposes this Mule app on all interfaces at port 8082.

@@ -27,6 +27,13 @@
         http://www.mulesoft.org/schema/mule/oauth
           http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd">
 
+    <!-- Load configuration properties from config.yaml (committed) and
+         config-local.yaml (git-ignored, for local overrides).
+         Mule resolves system/env properties inside YAML values, so
+         databricks.client.secret: "${DATABRICKS_CLIENT_SECRET}" picks up
+         the env var at runtime. -->
+    <configuration-properties file="config.yaml"/>
+
     <!-- ================================================================
          HTTP Listener Config
          Exposes this Mule app on all interfaces at port 8081.
@@ -43,14 +50,16 @@
          basePath: full PostgREST path prefix (see config.yaml / config-local.yaml)
          ================================================================ -->
     <http:request-config name="DataApi_HTTP" basePath="${dataapi.basePath}">
-        <http:request-connection host="${dataapi.host}" port="443" protocol="HTTPS"/>
-        <http:authentication>
-            <oauth:client-credentials-grant-type
-                clientId="${databricks.client.id}"
-                clientSecret="${databricks.client.secret}"
-                tokenUrl="https://${databricks.host}/oidc/v1/token"
-                scopes="all-apis"/>
-        </http:authentication>
+        <http:request-connection host="${dataapi.host}" port="443" protocol="HTTPS">
+            <!-- authentication is a child of request-connection in HTTP connector 1.7.x -->
+            <http:authentication>
+                <oauth:client-credentials-grant-type
+                    clientId="${databricks.client.id}"
+                    clientSecret="${databricks.client.secret}"
+                    tokenUrl="https://${databricks.host}/oidc/v1/token"
+                    scopes="all-apis"/>
+            </http:authentication>
+        </http:request-connection>
     </http:request-config>
 
     <!-- ================================================================
@@ -97,8 +106,9 @@
     <flow name="update-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="PATCH"/>
         <http:request config-ref="DataApi_HTTP" method="PATCH" path="/demo/customers">
-            <http:query-params>#[{ 'id': 'eq.' ++ attributes.uriParams.id }]</http:query-params>
+            <!-- headers must precede query-params in HTTP connector 1.7.x schema -->
             <http:headers>#[{ 'Prefer': 'return=representation', 'Content-Type': 'application/json' }]</http:headers>
+            <http:query-params>#[{ 'id': 'eq.' ++ attributes.uriParams.id }]</http:query-params>
         </http:request>
     </flow>
 

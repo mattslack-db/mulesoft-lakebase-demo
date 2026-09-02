@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings for building MuleSoft apps in a corporate environment where:
+    - repository.mulesoft.org → 127.0.0.1 (blocked)
+    - repo.maven.apache.org  → 127.0.0.1 (blocked)
+
+  All repositories (including Central) are mirrored to the publicly accessible
+  MuleSoft Nexus groups/public endpoint, which proxies both MuleSoft releases
+  and Maven Central.
+
+  Usage:
+    docker run ... maven:3.8-eclipse-temurin-11 mvn -s /workspace/maven-settings.xml clean package
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <mirrors>
+        <!--
+          Mirror ALL repositories (central, mule internal repo added by the plugin,
+          repository.mulesoft.org, anypoint-exchange, etc.) to the groups/public
+          endpoint which proxies both MuleSoft releases and Maven Central.
+        -->
+        <mirror>
+            <id>mulesoft-public-mirror</id>
+            <name>MuleSoft Nexus groups/public (mirrors Central + MuleSoft repos)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/groups/public</url>
+            <mirrorOf>*</mirrorOf>
+        </mirror>
+    </mirrors>
+
+</settings>
