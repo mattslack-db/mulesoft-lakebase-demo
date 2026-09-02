@@ -1,0 +1,27 @@
+# MuleSoft Lakebase Demo — Data API App local configuration example
+#
+# INSTRUCTIONS FOR PHASE 2:
+#   1. Copy this file:  cp config-local.example.yaml config-local.yaml
+#   2. Fill in the real SP_CLIENT_SECRET (from your secrets store / Databricks workspace).
+#   3. config-local.yaml is git-ignored — NEVER commit it.
+#
+# The values below are non-secret connection facts from infra/connection-facts.md.
+# Only databricks.client.secret requires a real secret value.
+
+dataapi:
+  # Lakebase Data API hostname (PostgREST proxy endpoint)
+  host: "ep-round-haze-d1ur4ljy.database.us-west-2.cloud.databricks.com"
+  # Full path prefix: workspace-path + database name
+  # Tables are addressed as <basePath>/demo/customers
+  basePath: "/api/2.0/workspace/7474647152304469/rest/databricks_postgres"
+
+databricks:
+  # Databricks workspace hostname — used to build the OAuth token URL:
+  #   https://<host>/oidc/v1/token
+  host: "fe-sandbox-mulesoft-lakebase-demo.cloud.databricks.com"
+  client:
+    # Service principal client ID (non-secret; also in infra/connection-facts.md)
+    id: "7a31531d-df0c-484f-af00-acd8a4f4e461"
+    # Service principal secret — FILL IN before running Phase 2.
+    # Retrieve from your team's secrets store; do NOT commit the real value.
+    secret: "FILL_IN_SP_CLIENT_SECRET"
