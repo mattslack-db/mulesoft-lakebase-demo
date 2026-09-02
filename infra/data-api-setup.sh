@@ -1,50 +1,32 @@
 #!/usr/bin/env bash
 # data-api-setup.sh — Reproducible Data API setup for the mulesoft-lakebase-demo project.
 #
-# Performs the four required steps to enable the Lakebase PostgREST Data API
-# with SP OAuth M2M (client-credentials) authentication:
+# Enables the Lakebase PostgREST Data API with per-identity SP OAuth M2M
+# (client-credentials) authentication via the databricks_auth extension.
 #
-#   Step 1: Enable the Data API (POST) with db_schemas including "demo".
-#   Step 2: Verify/set jwt_role_claim_key = ".sub" (SP tokens carry client_id in .sub).
-#   Step 3: Create (or re-create) the Lakebase role with LAKEBASE_OAUTH_V1 auth_method.
-#   Step 4: Attempt GRANT "<SP_CLIENT_ID>" TO authenticator (requires superuser ADMIN OPTION —
-#           expected to fail for project-creator accounts; documented as a Lakebase product gap).
+# Steps performed:
+#   Step 1: Enable the Data API (POST) with db_schemas=["demo","public"].
+#   Step 2: Verify/set jwt_role_claim_key=".sub" (SP tokens carry client_id in .sub).
+#   Step 3: Use databricks_create_role() from the databricks_auth extension to create
+#           the SP's Postgres role in a way that the current user can grant it to
+#           authenticator. GRANT to authenticator. Grant demo schema CRUD.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# ARCHITECTURE NOTE — Why Step 4 fails and why there is no workaround
+# WHY databricks_create_role() AND NOT databricks postgres create-role
 # ─────────────────────────────────────────────────────────────────────────────
-# The Databricks Data API proxy sits in front of PostgREST and enforces its own
-# JWT routing that bypasses PostgREST's native jwt_role_claim_key/db_anon_role:
+# `databricks postgres create-role` (CLI/control-plane path) creates the Postgres
+# role as a CP-owned role. The project creator gets no ADMIN OPTION → cannot grant
+# it to authenticator → Data API returns 403 "permission denied to set role".
 #
-#   1. Proxy validates the SP JWT against the Lakebase role registry (must have
-#      auth_method=LAKEBASE_OAUTH_V1; rejects with 401 otherwise).
-#   2. Proxy maps the SP to the Lakebase role's postgres_role (always = SP UUID
-#      for identity_type=SERVICE_PRINCIPAL — validated server-side; cannot be
-#      changed to an arbitrary Postgres role name).
-#   3. Proxy tells PostgREST to SET LOCAL ROLE <postgres_role>.
-#      jwt_role_claim_key and db_anon_role are NOT consulted for Databricks tokens.
-#   4. SET LOCAL ROLE requires authenticator ∈ <postgres_role>.
-#      The SP's postgres_role is always CP-owned (no ADMIN OPTION for project creators).
+# `databricks_create_role(uuid, 'SERVICE_PRINCIPAL')` (databricks_auth extension)
+# creates the role such that the current psql session user (e.g. matt.slack) has
+# ADMIN OPTION → can grant it to authenticator. It also registers the Lakebase role
+# with auth_method=LAKEBASE_OAUTH_V1 automatically — no separate CLI create-role call.
 #
-# All workarounds investigated and ruled out (see infra/connection-facts.md):
-#   - Shared-role via db_anon_role fallback: proxy bypasses jwt_role_claim_key
-#   - Creating the SP Postgres role as matt.slack first: CP auto-registers it as
-#     NO_LOGIN/IDENTITY_TYPE_UNSPECIFIED; create-role then errors "role exists"
-#   - update-role to change auth_method/identity_type: fields are immutable
-#   - create-role with postgres_role="demo_api": "Identity not found" (must equal SP UUID)
-#
-# This script creates and maintains the `demo_api` shared Postgres role (owned by
-# the project creator → ADMIN OPTION → grantable to authenticator). This role is
-# ready for the moment the cloud_admin or Lakebase product fix lands.
-#
-# OPTION A — Per-identity (requires cloud_admin):
-#   Unblock via: GRANT "<SP_CLIENT_ID>" TO authenticator; (as cloud_admin)
-#   Then jwt_role_claim_key=.sub works as designed.
-#
-# OPTION B — Shared role (no cloud_admin, but no per-SP Postgres isolation):
-#   NOT currently achievable via the Databricks Data API because the proxy
-#   ignores jwt_role_claim_key for Databricks-issued JWTs. Documented for
-#   reference in case the Lakebase product adds support for this path.
+# Alternative paths investigated and ruled out (see infra/connection-facts.md):
+#   - `CREATE ROLE "SP_UUID"` then `create-role`: CP auto-registers as NO_LOGIN/immutable
+#   - Shared anon-role via db_anon_role: Databricks proxy bypasses jwt_role_claim_key
+#     for Databricks-issued JWTs; always routes to the Lakebase postgres_role directly
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Usage:
@@ -82,7 +64,6 @@ BRANCH_ID="production"
 DATABASE_ID="databricks-postgres"
 BRANCH_PATH="projects/${PROJECT_ID}/branches/${BRANCH_ID}"
 DATA_API_PATH="${BRANCH_PATH}/databases/${DATABASE_ID}/data-api"
-ROLE_ID="sp-mulesoft-demo"
 
 # Resolve workspace host from CLI profile if not provided
 if [[ -z "${WORKSPACE_HOST}" ]]; then
@@ -91,13 +72,11 @@ if [[ -z "${WORKSPACE_HOST}" ]]; then
 fi
 
 if [[ -z "${WORKSPACE_HOST}" ]]; then
-  # Fall back: extract from databrickscfg
   WORKSPACE_HOST=$(python3 -c "
-import configparser, os, sys
+import configparser, os
 cfg = configparser.ConfigParser()
 cfg.read(os.path.expanduser('~/.databrickscfg'))
-host = cfg.get('${PROFILE}', 'host', fallback='')
-print(host.lstrip('https://').rstrip('/'))
+print(cfg.get('${PROFILE}', 'host', fallback='').lstrip('https://').rstrip('/'))
 ")
 fi
 
@@ -118,6 +97,19 @@ echo ""
 # ---------------------------------------------------------------------------
 WS_TOKEN=$(databricks auth token --profile "${PROFILE}" -o json 2>/dev/null \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+# ---------------------------------------------------------------------------
+# Postgres connection details (needed for Steps 2+3)
+# ---------------------------------------------------------------------------
+EP_PATH="${BRANCH_PATH}/endpoints/primary"
+PG_TOKEN=$(databricks postgres generate-database-credential "${EP_PATH}" \
+  --profile "${PROFILE}" -o json \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])")
+PG_HOST=$(databricks postgres get-endpoint "${EP_PATH}" --profile "${PROFILE}" -o json \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['status']['hosts']['host'])")
+PG_USER=$(databricks current-user me --profile "${PROFILE}" -o json \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['userName'])")
+PSQL="${PSQL:-psql}"
 
 # ---------------------------------------------------------------------------
 # Step 1: Enable the Data API (or verify it is already enabled)
@@ -206,153 +198,69 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3: Create (or verify) the SP Lakebase role with LAKEBASE_OAUTH_V1
+# Step 3: databricks_auth — create SP role, grant to authenticator, grant demo CRUD
 # ---------------------------------------------------------------------------
+# Uses the databricks_create_role() SQL function from the databricks_auth extension.
+# This creates the SP's Postgres role AND registers the Lakebase identity mapping
+# (auth_method=LAKEBASE_OAUTH_V1, identity_type=SERVICE_PRINCIPAL) in one call,
+# with the current user holding ADMIN OPTION so the subsequent GRANT to authenticator
+# succeeds without superuser. This is the ONLY supported no-cloud_admin path.
 echo ""
-echo "--- Step 3: Ensure SP Lakebase role (LAKEBASE_OAUTH_V1) ---"
-EXISTING_ROLE=$(databricks postgres get-role "${BRANCH_PATH}/roles/${ROLE_ID}" \
-  --profile "${PROFILE}" -o json 2>&1)
+echo "--- Step 3: databricks_auth SP role setup ---"
 
-if echo "${EXISTING_ROLE}" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('status',{}).get('auth_method')=='LAKEBASE_OAUTH_V1' else 1)" 2>/dev/null; then
-  echo "  SP Lakebase role '${ROLE_ID}' already exists with LAKEBASE_OAUTH_V1 ✓"
-elif echo "${EXISTING_ROLE}" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if 'role_id' in d.get('status',{}) else 1)" 2>/dev/null; then
-  echo "  SP Lakebase role '${ROLE_ID}' exists but has wrong auth_method — deleting and re-creating..."
-  databricks postgres delete-role "${BRANCH_PATH}/roles/${ROLE_ID}" --profile "${PROFILE}" >/dev/null 2>&1
-  databricks postgres create-role "${BRANCH_PATH}" \
-    --role-id "${ROLE_ID}" \
-    --json "{\"spec\":{\"identity_type\":\"SERVICE_PRINCIPAL\",\"postgres_role\":\"${SP_CLIENT_ID}\",\"auth_method\":\"LAKEBASE_OAUTH_V1\"}}" \
-    --profile "${PROFILE}" -o json >/dev/null
-  echo "  Created SP Lakebase role '${ROLE_ID}' with LAKEBASE_OAUTH_V1 ✓"
-else
-  # Check if there's another role for this SP_CLIENT_ID with the wrong type
-  OTHER_ROLE=$(databricks postgres list-roles "${BRANCH_PATH}" --profile "${PROFILE}" -o json 2>/dev/null \
-    | python3 -c "
-import json,sys
-roles=json.load(sys.stdin)
-for r in roles:
-    if r.get('status',{}).get('postgres_role')=='${SP_CLIENT_ID}':
-        print(r['name'])
-        break
-" 2>/dev/null || true)
-  if [[ -n "${OTHER_ROLE}" ]]; then
-    echo "  Found conflicting role '${OTHER_ROLE}' for SP — deleting..."
-    databricks postgres delete-role "${OTHER_ROLE}" --profile "${PROFILE}" >/dev/null 2>&1
-  fi
-  databricks postgres create-role "${BRANCH_PATH}" \
-    --role-id "${ROLE_ID}" \
-    --json "{\"spec\":{\"identity_type\":\"SERVICE_PRINCIPAL\",\"postgres_role\":\"${SP_CLIENT_ID}\",\"auth_method\":\"LAKEBASE_OAUTH_V1\"}}" \
-    --profile "${PROFILE}" -o json >/dev/null
-  echo "  Created SP Lakebase role '${ROLE_ID}' with LAKEBASE_OAUTH_V1 ✓"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 4: GRANT SP role to authenticator (requires superuser ADMIN OPTION)
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 4: GRANT \"${SP_CLIENT_ID}\" TO authenticator ---"
-echo "  NOTE: This step requires a Postgres superuser (cloud_admin) or ADMIN OPTION."
-echo "  Project-creator accounts (like the workspace owner) do NOT have ADMIN OPTION"
-echo "  on the SP Postgres role, even if they have CREATEROLE. This is a known"
-echo "  Lakebase product gap — create-role does not auto-grant SP roles to authenticator."
-echo ""
-
-EP_PATH="${BRANCH_PATH}/endpoints/primary"
-PG_TOKEN=$(databricks postgres generate-database-credential "${EP_PATH}" \
-  --profile "${PROFILE}" -o json \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])")
-PG_HOST=$(databricks postgres get-endpoint "${EP_PATH}" --profile "${PROFILE}" -o json \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['status']['hosts']['host'])")
-PG_USER=$(databricks current-user me --profile "${PROFILE}" -o json \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['userName'])")
-PSQL="${PSQL:-psql}"
-
-echo "  Attempting: GRANT \"${SP_CLIENT_ID}\" TO authenticator;"
-GRANT_EXIT=0
-GRANT_RESULT=$(PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
+SP_ALREADY_MEMBER=$(PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
   "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-  -c "GRANT \"${SP_CLIENT_ID}\" TO authenticator;" 2>&1) || GRANT_EXIT=$?
-echo "  Result: ${GRANT_RESULT}"
+  -t -c "
+SELECT 1 FROM pg_auth_members am
+JOIN pg_roles r ON r.oid=am.roleid
+JOIN pg_roles m ON m.oid=am.member
+WHERE r.rolname='${SP_CLIENT_ID}' AND m.rolname='authenticator';
+" 2>/dev/null | tr -d ' ')
 
-if [[ ${GRANT_EXIT} -eq 0 ]]; then
-  echo "  GRANT succeeded ✓ — Data API chain should now work."
-else
-  echo ""
-  echo "  GRANT FAILED (expected — Lakebase product gap)."
-  echo "  To unblock, a workspace admin must run as cloud_admin:"
-  echo "    GRANT \"${SP_CLIENT_ID}\" TO authenticator;"
-  echo "  Or open a Databricks support ticket to wire up the authenticator membership."
-  echo ""
-  echo "  The JDBC chain (psql direct) is unaffected and will continue to work."
-fi
-
-# ---------------------------------------------------------------------------
-# Step 5: Create demo_api shared role (project-creator-owned; ready for future fix)
-# ---------------------------------------------------------------------------
-# This step creates a Postgres role owned by the project creator (ADMIN OPTION
-# granted automatically by Postgres to the role creator). It can be granted to
-# authenticator without superuser, making it a useful building block.
-#
-# WHY it does NOT fix the Data API chain today:
-#   The Databricks Data API proxy ignores jwt_role_claim_key and db_anon_role for
-#   Databricks-issued JWTs. It always routes the SP token to the postgres_role from
-#   the Lakebase role spec (= SP UUID, CP-owned). There is no supported path to map
-#   the SP identity to demo_api without cloud_admin.
-#
-# WHEN it will matter:
-#   If cloud_admin grants the SP UUID role to authenticator, the per-identity path
-#   immediately works with the existing sp-mulesoft-demo Lakebase role (LAKEBASE_OAUTH_V1).
-#   The demo_api role is retained as supplementary shared-read infrastructure.
-echo ""
-echo "--- Step 5: Ensure demo_api shared role (project-creator-owned) ---"
-DEMO_API_EXISTS=$(PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
-  "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-  -t -c "SELECT 1 FROM pg_roles WHERE rolname='demo_api';" 2>/dev/null | tr -d ' ')
-if [[ "${DEMO_API_EXISTS}" == "1" ]]; then
-  echo "  demo_api role already exists."
-else
+if [[ "${SP_ALREADY_MEMBER}" == "1" ]]; then
+  echo "  authenticator is already a member of \"${SP_CLIENT_ID}\" ✓"
+  echo "  Ensuring demo schema grants are current..."
   PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
     "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-    -c "CREATE ROLE demo_api NOLOGIN;" >/dev/null 2>&1
-  echo "  Created demo_api role."
-fi
-
-# Ensure demo_api has demo schema CRUD
-PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
-  "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-  -c "
-GRANT USAGE ON SCHEMA demo TO demo_api;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA demo TO demo_api;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA demo TO demo_api;
-ALTER DEFAULT PRIVILEGES IN SCHEMA demo
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO demo_api;
+    -c "
+GRANT USAGE ON SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
 " >/dev/null 2>&1
-echo "  demo schema CRUD granted to demo_api."
-
-# Grant demo_api to authenticator (succeeds: project creator has ADMIN OPTION on demo_api)
-AUTH_GRANT_EXIT=0
-AUTH_GRANT_RESULT=$(PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
-  "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
-  -c "GRANT demo_api TO authenticator;" 2>&1) || AUTH_GRANT_EXIT=$?
-if [[ ${AUTH_GRANT_EXIT} -eq 0 ]]; then
-  echo "  GRANT demo_api TO authenticator ✓ (project-creator has ADMIN OPTION on demo_api)"
-elif echo "${AUTH_GRANT_RESULT}" | grep -q "already a member"; then
-  echo "  authenticator already a member of demo_api ✓"
+  echo "  demo schema grants applied ✓"
 else
-  echo "  WARN: GRANT demo_api TO authenticator: ${AUTH_GRANT_RESULT}" >&2
+  echo "  Running databricks_create_role + authenticator grant + demo CRUD..."
+  PGPASSWORD="${PG_TOKEN}" "${PSQL}" \
+    "host=${PG_HOST} user=${PG_USER} dbname=databricks_postgres sslmode=require" \
+    -v ON_ERROR_STOP=1 \
+    -c "
+CREATE EXTENSION IF NOT EXISTS databricks_auth;
+
+SELECT databricks_create_role('${SP_CLIENT_ID}', 'SERVICE_PRINCIPAL');
+
+GRANT \"${SP_CLIENT_ID}\" TO authenticator;
+
+GRANT USAGE ON SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA demo TO \"${SP_CLIENT_ID}\";
+" 2>&1
+  echo "  SP role created, authenticator granted, demo CRUD applied ✓"
 fi
-echo "  NOTE: demo_api is ready but the Data API proxy does not use it for SP tokens today."
-echo "        See infra/connection-facts.md for the full architecture explanation."
 
 echo ""
 echo "=== Data API setup complete ==="
-echo "  Data API URL: https://${PG_HOST}/api/2.0/workspace/$(
-  curl -s -H "Authorization: Bearer ${WS_TOKEN}" \
-    "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}" \
-    | python3 -c "
-import json,sys,re
+DATA_API_URL=$(curl -s -H "Authorization: Bearer ${WS_TOKEN}" \
+  "https://${WORKSPACE_HOST}/api/2.0/postgres/${DATA_API_PATH}" \
+  | python3 -c "
+import json,sys
 d=json.load(sys.stdin)
 r=d.get('response',d)
-url=r.get('status',{}).get('url','')
-m=re.search(r'/workspace/(\d+)/', url)
-print(m.group(1) if m else 'UNKNOWN')
-" 2>/dev/null)/rest/databricks_postgres"
+print(r.get('status',{}).get('url','UNKNOWN'))
+" 2>/dev/null)
+echo "  Data API URL: ${DATA_API_URL}"
+echo ""
+echo "  Verify with:"
+echo "    SP_TOKEN=\$(curl -s -u SP_CLIENT_ID:SP_SECRET https://WORKSPACE/oidc/v1/token -d grant_type=client_credentials&scope=all-apis | jq -r .access_token)"
+echo "    curl -H \"Authorization: Bearer \$SP_TOKEN\" \"${DATA_API_URL}/demo/customers?limit=1\""
