@@ -1,10 +1,10 @@
 # MuleSoft Lakebase Demo - JDBC App configuration (committed)
 #
-# PLACEHOLDERS ONLY - no real values here.
-# Real values go in config-local.yaml (git-ignored).
-# Copy config-local.example.yaml -> config-local.yaml and fill in before running Phase 2.
+# Non-secret values are stored here. The client secret is read from the
+# DATABRICKS_CLIENT_SECRET environment variable at runtime (Mule resolves
+# system/env properties inside YAML string values).
 #
-# Key layout must match property references in jdbc.xml:
+# Key layout matches property references in jdbc.xml:
 #   ${pg.host}                      - Lakebase PostgreSQL hostname
 #   ${pg.database}                  - Lakebase database name
 #   ${pg.user}                      - Postgres role (SP client ID UUID)
@@ -13,7 +13,7 @@
 #   ${lakebase.endpointPath}        - Lakebase endpoint path for credential minting
 #   ${databricks.host}              - Databricks workspace hostname (OAuth token URL base)
 #   ${databricks.client.id}         - Service principal client ID (OAuth M2M, non-secret)
-#   ${databricks.client.secret}     - Service principal secret (resolved via ${secure::...})
+#   ${databricks.client.secret}     - Resolved from DATABRICKS_CLIENT_SECRET env var (never committed)
 
 pg:
   host: "<PG_HOST>"
@@ -23,10 +23,10 @@ pg:
     token: "<leave-blank: populated-at-runtime-by-refresh-flow-phase2-spike>"
 
 lakebase:
-  endpointPath: "projects/<PROJECT_ID>/branches/production/endpoints/primary"
+  endpointPath: "projects/mulesoft-lakebase-demo/branches/production/endpoints/primary"
 
 databricks:
-  host: "<workspace-host>"
+  host: "<WORKSPACE_HOST>"
   client:
     id: "<SP_CLIENT_ID>"
-    secret: "${secure::databricks.client.secret}"
+    secret: "${DATABRICKS_CLIENT_SECRET}"
