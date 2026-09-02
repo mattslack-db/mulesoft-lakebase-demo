@@ -44,34 +44,57 @@ Non-secret connection values for the demo environment.
 > Tables are addressed as `<DATA_API_URL>/<schema>/<table>` (PostgREST convention).
 > Example: `<DATA_API_URL>/demo/customers`
 
-### Data API Configuration (as of rebuild)
+### Current Data API Configuration
 
 | Parameter | Value |
 |-----------|-------|
 | `db_schemas` | `["demo", "public"]` |
 | `jwt_role_claim_key` | `.sub` |
-| `db_anon_role` | `anonymous` |
+| `db_anon_role` | `demo_api` |
 
-### Known Blocker: authenticator role membership
+### Lakebase Role Registry
 
-The Data API chain reaches HTTP 403 with `"permission denied to set role \"7a31531d-...\""`.
+| Role ID | postgres_role | auth_method | Notes |
+|---------|--------------|-------------|-------|
+| `sp-mulesoft-demo` | `7a31531d-...` | `LAKEBASE_OAUTH_V1` | SP M2M identity mapping |
+| `matt-slack` | `matt.slack@databricks.com` | `LAKEBASE_OAUTH_V1` | Project owner |
+| `rol-f31p-r8lpvzb82s` | `authenticator` | `PG_PASSWORD_SCRAM_SHA_256` | PostgREST connector role |
 
-PostgREST connects as `authenticator` and calls `SET LOCAL ROLE "7a31531d-..."` (the SP client ID,
-extracted from the `.sub` JWT claim). This requires `authenticator` to be a member of the SP's
-Postgres role.
+### Known Blocker: authenticator → SP role membership (confirmed impossible without cloud_admin)
 
-The grant `GRANT "7a31531d-..." TO authenticator` fails for all project-creator access levels:
-- Plain GRANT: `ERROR: permission denied to grant role "7a31531d-..." — Only roles with the ADMIN option may grant this role`
-- Via `SET ROLE databricks_superuser`: `ERROR: permission denied to set role "databricks_superuser"`
-  (matt.slack is a member of `databricks_superuser` in pg_auth_members with `admin_option: false`)
+**Symptom:** HTTP 403 `"permission denied to set role \"7a31531d-...\""` on Data API calls.
 
-The Databricks control plane (`cloud_admin`, `databricks_control_plane`) must run this grant.
-The `databricks postgres create-role` API does NOT automatically grant the SP role to `authenticator`
-even when `auth_method: LAKEBASE_OAUTH_V1` is specified. This is a Lakebase product gap.
+**Root cause:** The Databricks Data API proxy validates the SP JWT against the Lakebase role registry
+(requires `LAKEBASE_OAUTH_V1` for the SP identity), then **ignores `jwt_role_claim_key`** and directly
+routes to the Lakebase role's `postgres_role` field (always = SP client_id UUID for SP identities).
+PostgREST executes `SET LOCAL ROLE "7a31531d-..."`. This requires `authenticator` to be a member.
 
-**Unblock path**: A Databricks workspace admin or the Lakebase product team needs to run:
+**All workaround paths tested and failed:**
+
+| Approach | Result |
+|----------|--------|
+| `GRANT "7a31531d-..." TO authenticator` as matt.slack | ERROR: no ADMIN OPTION (CP-owned role) |
+| `SET ROLE databricks_superuser; GRANT ...` | ERROR: permission denied to set role (admin_option=f) |
+| Create SP Postgres role as matt.slack first (ADMIN OPTION) → then `create-role` | CP auto-registers manually-created role as `NO_LOGIN/IDENTITY_TYPE_UNSPECIFIED` (not updatable), then `create-role` fails "role with that name already exists" |
+| Change `jwt_role_claim_key` to `.role` (absent in SP JWT) → PostgREST anon fallback | Proxy bypasses `jwt_role_claim_key` for Databricks tokens; still routes to `7a31531d-...` |
+| `create-role --json '{"spec":{"postgres_role":"demo_api",...}}'` | ERROR: `Identity 'demo_api' not found` — SP postgres_role must equal SP client_id UUID |
+| `update-role` to change `auth_method`/`identity_type`/`postgres_role` | ERROR: `Unknown field path in update_mask` — these fields are immutable after creation |
+
+**Key architectural finding:** The Databricks Data API proxy enforces `postgres_role == SP_CLIENT_ID`
+for SERVICE_PRINCIPAL Lakebase roles. `jwt_role_claim_key` is only effective for non-Databricks
+(external IdP) tokens, not for Databricks-issued JWTs. For Databricks SP tokens, the role is always
+the `postgres_role` from the Lakebase role spec, and that role is always CP-owned.
+
+**Shared Postgres role `demo_api`:** Created as matt.slack (ADMIN OPTION), demo CRUD granted,
+`authenticator` is a member. This role exists and is ready — if cloud_admin runs the grant or the
+Lakebase product team fixes `create-role` to wire up `authenticator` membership, the per-identity
+path immediately works. `demo_api` is also available as a future shared-auth fallback if the product
+supports that pattern.
+
+**Unblock path (cloud_admin required):**
 ```sql
--- As cloud_admin or via Databricks support
+-- Run as cloud_admin or via Databricks support
 GRANT "7a31531d-df0c-484f-af00-acd8a4f4e461" TO authenticator;
 ```
-Or the `create-role` API should be updated to automatically GRANT SP roles to `authenticator`.
+Or: the `create-role` API should automatically GRANT SP roles to `authenticator` when
+`auth_method: LAKEBASE_OAUTH_V1` is set. This is a confirmed Lakebase product gap.
