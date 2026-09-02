@@ -1,0 +1,22 @@
+# MuleSoft Lakebase Demo — Data API App configuration (committed)
+#
+# PLACEHOLDERS ONLY — no real values here.
+# Real values go in config-local.yaml (git-ignored).
+# Copy config-local.example.yaml → config-local.yaml and fill in before running Phase 2.
+#
+# Key layout must match property references in data-api.xml:
+#   ${dataapi.host}             — Lakebase Data API hostname
+#   ${dataapi.basePath}         — Data API path prefix (workspace + database path)
+#   ${databricks.host}          — Databricks workspace hostname (for OAuth token URL)
+#   ${databricks.client.id}     — Service principal client ID (OAuth M2M)
+#   ${databricks.client.secret} — Service principal secret (resolved via ${secure::...})
+
+dataapi:
+  host: "<data-api-host>"
+  basePath: "<data-api-base-path>"
+
+databricks:
+  host: "<workspace-host>"
+  client:
+    id: "<SP_CLIENT_ID>"
+    secret: "${secure::databricks.client.secret}"

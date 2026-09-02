@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example.mulesoft.lakebase</groupId>
+    <artifactId>mule-data-api</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>mule-application</packaging>
+
+    <name>MuleSoft Lakebase Demo — Data API App</name>
+    <description>
+        Mule 4 app exposing PostgREST CRUD over /customers via the Databricks Lakebase
+        Data API with OAuth 2.0 client-credentials authentication.
+    </description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--
+            Connector versions to be reconciled at first `mvn package` in Phase 2.
+            Pin these after running `mvn dependency:tree` against the resolved runtime BOM.
+            mule-http-connector 1.9.x bundles the OAuth extension — no separate oauth module needed.
+        -->
+        <mule.version>4.6.0</mule.version>
+        <mule.http.connector.version>1.9.2</mule.http.connector.version>
+        <mule.secure.properties.version>1.2.6</mule.secure.properties.version>
+        <mule.maven.plugin.version>4.1.1</mule.maven.plugin.version>
+    </properties>
+
+    <dependencies>
+        <!-- HTTP Connector: includes OAuth 2.0 client-credentials grant-type support -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-http-connector</artifactId>
+            <version>${mule.http.connector.version}</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+        <!-- Secure Configuration Properties: resolves ${secure::...} placeholders at runtime -->
+        <dependency>
+            <groupId>com.mulesoft.modules</groupId>
+            <artifactId>mule-secure-configuration-property-module</artifactId>
+            <version>${mule.secure.properties.version}</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.mule.tools.maven</groupId>
+                <artifactId>mule-maven-plugin</artifactId>
+                <version>${mule.maven.plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <classifier>mule-application</classifier>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>mulesoft-releases</id>
+            <name>MuleSoft Releases Repository</name>
+            <url>https://repository.mulesoft.org/releases/</url>
+            <layout>default</layout>
+        </repository>
+        <repository>
+            <id>anypoint-exchange-v3</id>
+            <name>Anypoint Exchange V3</name>
+            <url>https://maven.anypoint.mulesoft.com/api/v3/maven/</url>
+            <layout>default</layout>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>mulesoft-releases</id>
+            <name>MuleSoft Releases Repository</name>
+            <url>https://repository.mulesoft.org/releases/</url>
+            <layout>default</layout>
+        </pluginRepository>
+    </pluginRepositories>
+
+</project>
