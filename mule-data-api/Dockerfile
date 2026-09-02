@@ -16,12 +16,14 @@ COPY mule-data-api/mule-artifact.json /workspace/mule-data-api/mule-artifact.jso
 COPY mule-data-api/src             /workspace/mule-data-api/src
 
 RUN cd /workspace/mule-data-api \
-    && mvn -s /workspace/maven-settings.xml clean package -q
+    && mvn -s /workspace/maven-settings.xml clean package \
+       -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn
 
 # ============================================================
 # Stage 2: Mule CE runtime (arm64-compatible)
+# Pinned to the exact CE release tested in Task-1 spike.
 # ============================================================
-FROM javastreets/mule:latest
+FROM javastreets/mule:CE-4.4.0-20221024
 
 # Deploy the packaged Mule application
 COPY --from=builder /workspace/mule-data-api/target/*-mule-application.jar /opt/mule/apps/
