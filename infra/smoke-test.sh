@@ -7,7 +7,8 @@ EP=projects/$PROJECT/branches/production/endpoints/primary
 DATA_API_URL=https://ep-round-haze-d1ur4ljy.database.us-west-2.cloud.databricks.com/api/2.0/workspace/7474647152304469/rest/databricks_postgres
 PSQL=/opt/homebrew/Cellar/postgresql@17/17.9/bin/psql
 
-# --- Chain 1: JDBC/psql path — OAuth token as Postgres password ---
+# --- JDBC / Postgres-wire OAuth chain ---
+# (smoke-test runs JDBC first for convenience; the docs number Data API as Chain 1)
 HOST=$(databricks postgres get-endpoint "$EP" --profile "$PROFILE" -o json \
   | python3 -c "import json,sys;print(json.load(sys.stdin)['status']['hosts']['host'])")
 TOKEN=$(databricks postgres generate-database-credential "$EP" --profile "$PROFILE" -o json \
@@ -17,7 +18,7 @@ USER=$(databricks current-user me --profile "$PROFILE" -o json \
 PGPASSWORD="$TOKEN" "$PSQL" "host=$HOST user=$USER dbname=databricks_postgres sslmode=require" \
   -c "SELECT count(*) FROM demo.customers;" >/dev/null && echo "✓ JDBC/psql auth chain OK"
 
-# --- Chain 2: Data API path — OAuth client-credentials Bearer token ---
+# --- Data API (PostgREST) OAuth chain ---
 CID=$(python3 -c "import yaml;print(yaml.safe_load(open('config-local.yaml'))['databricks']['client_id'])")
 CSEC=$(python3 -c "import yaml;print(yaml.safe_load(open('config-local.yaml'))['databricks']['client_secret'])")
 WHOST=$(python3 -c "import yaml;print(yaml.safe_load(open('config-local.yaml'))['databricks']['host'])")
