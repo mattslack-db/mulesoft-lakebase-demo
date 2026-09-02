@@ -1,0 +1,32 @@
+# MuleSoft Lakebase Demo - JDBC App configuration (committed)
+#
+# PLACEHOLDERS ONLY - no real values here.
+# Real values go in config-local.yaml (git-ignored).
+# Copy config-local.example.yaml -> config-local.yaml and fill in before running Phase 2.
+#
+# Key layout must match property references in jdbc.xml:
+#   ${pg.host}                      - Lakebase PostgreSQL hostname
+#   ${pg.database}                  - Lakebase database name
+#   ${pg.user}                      - Postgres role (SP client ID UUID)
+#   ${pg.bootstrap.token}           - Fallback token used before first scheduled refresh
+#                                     (SPIKE placeholder; p('pg.bootstrap.token') in db:config)
+#   ${lakebase.endpointPath}        - Lakebase endpoint path for credential minting
+#   ${databricks.host}              - Databricks workspace hostname (OAuth token URL base)
+#   ${databricks.client.id}         - Service principal client ID (OAuth M2M, non-secret)
+#   ${databricks.client.secret}     - Service principal secret (resolved via ${secure::...})
+
+pg:
+  host: "<PG_HOST>"
+  database: "databricks_postgres"
+  user: "<SP_CLIENT_ID>"
+  bootstrap:
+    token: "<leave-blank: populated-at-runtime-by-refresh-flow-phase2-spike>"
+
+lakebase:
+  endpointPath: "projects/<PROJECT_ID>/branches/production/endpoints/primary"
+
+databricks:
+  host: "<workspace-host>"
+  client:
+    id: "<SP_CLIENT_ID>"
+    secret: "${secure::databricks.client.secret}"

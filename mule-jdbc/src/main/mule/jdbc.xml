@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MuleSoft Lakebase Demo - JDBC App (App 2)
+
+  Exposes five CRUD flows over /customers using a direct JDBC connection to
+  Databricks Lakebase (PostgreSQL-compatible).
+
+  Authentication model:
+    - A scheduled refresh-lakebase-token flow (every 45 min) obtains a
+      Databricks OAuth token via client-credentials, then mints a short-lived
+      Lakebase database credential via the Lakebase REST API.
+    - The credential is stored in an in-memory Object Store (TokenStore).
+    - The DB connection pool reads the credential at connection time.
+
+  SPIKE (Phase 2): the mechanism by which a rotated token is injected into
+  an already-open DB connection pool has not been resolved. See the SPIKE
+  annotation on db:config below and the refresh-lakebase-token flow.
+
+  Port: 8082 (App 1 / mule-data-api uses 8081).
+
+  Phase 3 validation: xmllint noout (well-formedness only).
+  Phase 2 build/run: mvn package inside mule-jdbc/ with Mule tooling.
+-->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+          http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+          http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/db
+          http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+        http://www.mulesoft.org/schema/mule/os
+          http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <!-- ================================================================
+         HTTP Listener Config
+         Exposes this Mule app on all interfaces at port 8082.
+         (App 1 mule-data-api occupies 8081; different port avoids conflict
+         when both apps run in the same Mule runtime during demo.)
+         ================================================================ -->
+    <http:listener-config name="HTTP_Listener">
+        <http:listener-connection host="0.0.0.0" port="8082"/>
+    </http:listener-config>
+
+    <!-- ================================================================
+         HTTP Request Config - Databricks OAuth Token Endpoint
+         Used by the refresh-lakebase-token flow to obtain a bearer token
+         via the OAuth 2.0 client-credentials grant type.
+         Token URL: https://${databricks.host}/oidc/v1/token
+         ================================================================ -->
+    <http:request-config name="Databricks_OAuth_HTTP">
+        <http:request-connection host="${databricks.host}" port="443" protocol="HTTPS"/>
+    </http:request-config>
+
+    <!-- ================================================================
+         Object Store: in-memory cache for the Lakebase DB credential.
+         The refresh-lakebase-token flow writes here every 45 minutes.
+         persistent="false" - token survives only for the JVM lifetime;
+         on restart the scheduler fires immediately (initialDelay=0 default).
+         ================================================================ -->
+    <os:object-store name="TokenStore" persistent="false"/>
+
+    <!-- ================================================================
+         DB Config - Lakebase PostgreSQL Connection
+
+         SPIKE (Phase 2): Mule's DB global config does not re-read a static
+         placeholder at runtime. Resolve which technique rotates the password
+         in the live connection pool as Lakebase credentials expire:
+           (a) OS-backed credential + reconnection strategy - close/reopen
+               pool connections when the credential is refreshed.
+           (b) Custom HikariCP DataSource bean with a credential supplier
+               function that reads from the Object Store on each borrow.
+           (c) Per-request dynamic DB config - build a new db:config element
+               inline per flow execution using a DataWeave config factory.
+         Authored here with a DataWeave fallback expression for structural
+         review. The expression will not evaluate in a global config element
+         at runtime without one of the Phase-2 spike solutions in place.
+
+         Connection string:
+           jdbc:postgresql://${pg.host}:5432/${pg.database}?sslmode=require
+         Driver: org.postgresql.Driver (packaged in pom.xml)
+         User:   ${pg.user} - the SP's Postgres role UUID
+                 (provisioned via databricks_create_role() in data-api-role.sql)
+         ================================================================ -->
+    <db:config name="Lakebase_DB">
+        <db:generic-connection
+            url="jdbc:postgresql://${pg.host}:5432/${pg.database}?sslmode=require"
+            driverClassName="org.postgresql.Driver"
+            user="${pg.user}"
+            password="#[vars.lakebaseToken default p('pg.bootstrap.token')]"/>
+    </db:config>
+
+    <!-- ================================================================
+         Flow: refresh-lakebase-token
+         Scheduled every 2700 seconds (45 minutes) to stay ahead of the
+         Lakebase credential TTL (~60 minutes observed in demo environment).
+
+         Steps:
+           1. Obtain a Databricks OAuth access token (client-credentials).
+           2. Mint a short-lived Lakebase database credential using that token.
+              SPIKE (Phase 2): exact REST path to be confirmed.
+           3. Store the credential in TokenStore under key "lakebase-pg-token".
+         ================================================================ -->
+    <flow name="refresh-lakebase-token">
+        <scheduler>
+            <scheduling-strategy>
+                <fixed-frequency frequency="2700" timeUnit="SECONDS"/>
+            </scheduling-strategy>
+        </scheduler>
+
+        <!--
+          Step 1: Obtain a Databricks OAuth token via client-credentials.
+          POST https://${databricks.host}/oidc/v1/token
+          Content-Type: application/x-www-form-urlencoded
+          Body: grant_type=client_credentials
+                &client_id=${databricks.client.id}
+                &client_secret=${databricks.client.secret}
+                &scope=all-apis
+          Expected response: { "access_token": "...", "token_type": "Bearer",
+                                "expires_in": 3600 }
+        -->
+        <set-payload value="#['grant_type=client_credentials&amp;client_id=' ++ p('databricks.client.id') ++ '&amp;client_secret=' ++ p('databricks.client.secret') ++ '&amp;scope=all-apis']"/>
+        <http:request config-ref="Databricks_OAuth_HTTP" method="POST" path="/oidc/v1/token">
+            <http:headers>#[{ 'Content-Type': 'application/x-www-form-urlencoded' }]</http:headers>
+        </http:request>
+        <set-variable variableName="databricksAccessToken" value="#[payload.access_token]"/>
+
+        <!--
+          Step 2: Mint the Lakebase database credential.
+
+          SPIKE (Phase 2): the exact REST path and request/response schema must
+          be confirmed. The Databricks CLI equivalent is:
+            databricks postgres generate-database-credential [endpoint-path]
+          Candidate REST shape (to be verified against Databricks API docs):
+            POST https://${databricks.host}/api/2.0/lakebase/credentials/generate
+            Authorization: Bearer {databricksAccessToken}
+            Body: { "endpoint_path": "${lakebase.endpointPath}" }
+          Expected response shape (assumed): { "token": "...", "expires_at": "..." }
+
+          Implement the minting HTTP request here in Phase 2 using
+          vars.databricksAccessToken for the Authorization header and
+          p('lakebase.endpointPath') in the request body.
+          The os:store below expects payload.token from the minting response.
+        -->
+
+        <!--
+          Step 3: Store the minted credential in the in-memory Object Store.
+          payload.token is set by the minting call in Step 2 (Phase 2 spike).
+        -->
+        <os:store objectStore="TokenStore" key="lakebase-pg-token">
+            <os:value>#[payload.token]</os:value>
+        </os:store>
+
+        <logger level="INFO" message="Refreshed Lakebase DB credential"/>
+    </flow>
+
+    <!-- ================================================================
+         Flow: list-customers
+         GET /customers
+         Returns all rows from demo.customers ordered by id.
+         ================================================================ -->
+    <flow name="list-customers">
+        <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="GET"/>
+        <db:select config-ref="Lakebase_DB">
+            <db:sql>SELECT id, name, email, tier, created_at FROM demo.customers ORDER BY id</db:sql>
+        </db:select>
+    </flow>
+
+    <!-- ================================================================
+         Flow: get-customer
+         GET /customers/{id}
+         Returns the single row matching the given id.
+         ================================================================ -->
+    <flow name="get-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="GET"/>
+        <db:select config-ref="Lakebase_DB">
+            <db:sql>SELECT id, name, email, tier, created_at FROM demo.customers WHERE id = :id</db:sql>
+            <db:input-parameters>#[{ 'id': attributes.uriParams.id }]</db:input-parameters>
+        </db:select>
+    </flow>
+
+    <!-- ================================================================
+         Flow: create-customer
+         POST /customers
+         Body: JSON object with name, email, tier fields.
+         Returns the created row (RETURNING *).
+         ================================================================ -->
+    <flow name="create-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="POST"/>
+        <db:insert config-ref="Lakebase_DB">
+            <db:sql>INSERT INTO demo.customers (name, email, tier) VALUES (:name, :email, :tier) RETURNING *</db:sql>
+            <db:input-parameters>#[{ 'name': payload.name, 'email': payload.email, 'tier': payload.tier default 'standard' }]</db:input-parameters>
+        </db:insert>
+    </flow>
+
+    <!-- ================================================================
+         Flow: update-customer
+         PATCH /customers/{id}
+         Body: JSON object with tier field.
+         Returns the updated row (RETURNING *).
+         ================================================================ -->
+    <flow name="update-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="PATCH"/>
+        <db:update config-ref="Lakebase_DB">
+            <db:sql>UPDATE demo.customers SET tier = :tier WHERE id = :id RETURNING *</db:sql>
+            <db:input-parameters>#[{ 'id': attributes.uriParams.id, 'tier': payload.tier }]</db:input-parameters>
+        </db:update>
+    </flow>
+
+    <!-- ================================================================
+         Flow: delete-customer
+         DELETE /customers/{id}
+         Returns 204 No Content on success (Mule default for empty payload).
+         ================================================================ -->
+    <flow name="delete-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="DELETE"/>
+        <db:delete config-ref="Lakebase_DB">
+            <db:sql>DELETE FROM demo.customers WHERE id = :id</db:sql>
+            <db:input-parameters>#[{ 'id': attributes.uriParams.id }]</db:input-parameters>
+        </db:delete>
+    </flow>
+
+</mule>

@@ -1,0 +1,38 @@
+# MuleSoft Lakebase Demo - JDBC App local configuration example
+#
+# INSTRUCTIONS FOR PHASE 2:
+#   1. Copy this file:  cp config-local.example.yaml config-local.yaml
+#   2. Fill in the real SP_CLIENT_SECRET (from your secrets store / Databricks workspace).
+#   3. config-local.yaml is git-ignored - NEVER commit it.
+#
+# All non-secret values below come from infra/connection-facts.md.
+# Only databricks.client.secret requires a real secret value.
+
+pg:
+  # Lakebase PostgreSQL hostname
+  host: "ep-round-haze-d1ur4ljy.database.us-west-2.cloud.databricks.com"
+  # Lakebase database name
+  database: "databricks_postgres"
+  # Postgres role: the SP's UUID, provisioned via databricks_create_role() in data-api-role.sql
+  user: "7a31531d-df0c-484f-af00-acd8a4f4e461"
+  bootstrap:
+    # Fallback token used by the db:config SPIKE expression before the first scheduled refresh.
+    # Leave blank until Phase 2 resolves the token-injection mechanism.
+    # Once the spike is resolved this key may be removed or replaced.
+    token: ""
+
+lakebase:
+  # Endpoint path passed to the Lakebase credential-minting REST call (Phase 2 spike).
+  # Format: projects/<project-id>/branches/<branch-id>/endpoints/<endpoint-id>
+  endpointPath: "projects/mulesoft-lakebase-demo/branches/production/endpoints/primary"
+
+databricks:
+  # Databricks workspace hostname - used to build the OAuth token URL:
+  #   https://<host>/oidc/v1/token
+  host: "fe-sandbox-mulesoft-lakebase-demo.cloud.databricks.com"
+  client:
+    # Service principal client ID (non-secret; also in infra/connection-facts.md)
+    id: "7a31531d-df0c-484f-af00-acd8a4f4e461"
+    # Service principal secret - FILL IN before running Phase 2.
+    # Retrieve from your team's secrets store; do NOT commit the real value.
+    secret: "FILL_IN_SP_CLIENT_SECRET"
