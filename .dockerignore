@@ -1,0 +1,23 @@
+# Exclude build output — images are built from source in Stage 1
+target/
+mule-data-api/target/
+mule-jdbc/target/
+
+# Exclude git history
+.git/
+.gitignore
+
+# Exclude local secrets — never baked into images
+.env
+config-local.yaml
+*.token
+
+# Exclude OS noise
+.DS_Store
+**/.DS_Store
+
+# Exclude IDE and planning artifacts
+.superpowers/
+docs/
+infra/
+*.md
