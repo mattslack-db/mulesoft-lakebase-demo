@@ -241,8 +241,8 @@ credential without a restart.
 | Approach | Result |
 |---|---|
 | (a) Reconnection strategy | Rejected: HikariCP stores the resolved password string; reconnection retries reuse it — `setPassword()` has no effect |
-| (b) Per-request dynamic `config-ref` | Rejected: EE-only feature in Mule 4 CE |
-| **(c) Proxy JDBC Driver** | **Used** — intercepts every `connect()` call |
+| **(b) Proxy JDBC Driver** | **Used** — intercepts every `connect()` call (proxy-Driver variant of custom datasource-level credential injection) |
+| (c) Per-request dynamic `config-ref` | Rejected: EE-only feature in Mule 4 CE |
 
 **`LakebaseDriver` proxy architecture** (commit `e5c3a7f`):
 
