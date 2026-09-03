@@ -1,32 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  MuleSoft Lakebase Demo - JDBC App (App 2) — Task 5 implementation
+  MuleSoft Lakebase Demo - JDBC App (App 2) — Task 5 + rotation fix (Round 1)
 
-  Credential-mint REST call (discovered via databricks debug flag):
+  Credential-mint REST call (confirmed via databricks CLI debug):
     POST https://${databricks.host}/api/2.0/postgres/credentials
     Authorization: Bearer {databricksOauthToken}
     Content-Type: application/json
     Body: { "endpoint": "projects/mulesoft-lakebase-demo/branches/production/endpoints/primary" }
     Response: { "token": "...", "expire_time": "..." }
 
-  Password-injection technique: (b) Custom DataSource as static credential store,
-  read by a DataWeave Java-interop expression in db:generic-connection password.
-  LakebaseDataSource.getPassword() returns the static AtomicReference value.
-  The Mule DB connector creates the HikariCP pool LAZILY on first db:select.
-  The refresh-lakebase-token flow fires at startDelay=0 (immediately on startup)
-  and calls java:invoke-static LakebaseDataSource.setPassword(token) before the
-  first HTTP request reaches db:select. The pool is therefore created with a valid
-  credential.
+  Password-injection technique: (b) Proxy JDBC Driver — LakebaseDriver.java.
+    db:generic-connection uses driverClassName="...LakebaseDriver" with a
+    placeholder password and a jdbc:lakebase:// URL. HikariCP calls
+    LakebaseDriver.connect() for every new physical connection. connect()
+    ignores HikariCP's stored placeholder and reads LakebaseDataSource.getPassword()
+    — the current AtomicReference value — instead. After setPassword(newToken) is
+    called by the refresh flow, the NEXT new physical connection uses the new token.
 
-  Alternatives considered:
-    (a) Reconnection strategy with db:generic-connection: db:generic-connection
-        resolves connection-provider parameters once at config initialization.
-        Reconnect retries use the same resolved value; the password cannot be
-        rotated this way without a custom DataSource.
-    (c) Per-request dynamic config-ref: Mule 4 CE does not support dynamic
-        config-ref expressions on db:select/insert/etc; that is an EE feature.
+  Why the Spring-module approach was abandoned:
+    mule-spring-module 1.3.5 on Mule CE 4.4.0 cannot start: its plugin classloader
+    requires org.springframework.beans.factory.*, org.springframework.context.*, and
+    org.springframework.security.* but neither the Mule container classloader nor the
+    app classloader exports those packages to plugins (Mule's internal Spring is not
+    exported; adding Spring JARs as app deps + exporting in mule-artifact.json did not
+    resolve the full transitive chain). See docs/spring-beans-ABANDONED.xml.
 
-  Port: 8082 (mule-data-api uses 8081).
+  Alternatives rejected:
+    (a) db:generic-connection with reconnection strategy: HikariCP stores the
+        password string at pool-creation time and reuses it for all physical
+        connections. setPassword() updates the AtomicReference but HikariCP never
+        re-reads it when creating connections from its pool config. Rejected.
+    (c) Per-request dynamic config-ref: EE-only feature in Mule 4 CE. Rejected.
+
+  Scheduler: 60 s for rotation demo (rotate + confirm within a short window).
+  Restore to frequency="2700" before production use.
+
+  HTTP listener: port 8081 (container internal).
+  docker-compose maps host:8082 to container:8081.
 -->
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -46,28 +56,22 @@
         http://www.mulesoft.org/schema/mule/java
           http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
 
-    <!-- Load configuration properties from config.yaml (committed).
-         Mule resolves ${...} and env-var references inside YAML string values,
-         so databricks.client.secret = "${DATABRICKS_CLIENT_SECRET}" picks up
-         the env var at runtime without committing the secret. -->
+    <!-- Load configuration properties from config.yaml (committed). -->
     <configuration-properties file="config.yaml"/>
 
     <!-- ================================================================
          HTTP Listener Config
-         Exposes this Mule app on all interfaces at port 8082.
-         (App 1 mule-data-api occupies 8081.)
+         Container internal port 8081. docker-compose.yml maps host:8082
+         to container:8081; callers reach this listener at localhost:8082.
          ================================================================ -->
-    <!-- Internal container port is 8081; docker-compose maps host:8082 → container:8081.
-         Both mule-data-api and mule-jdbc run in separate containers so port
-         collisions between them are not possible. -->
     <http:listener-config name="HTTP_Listener">
         <http:listener-connection host="0.0.0.0" port="8081"/>
     </http:listener-config>
 
     <!-- ================================================================
          HTTP Request Config — Databricks workspace
-         Used by the refresh-lakebase-token flow for both:
-           Step 1: POST /oidc/v1/token   (OAuth client-credentials grant)
+         Used by refresh-lakebase-token for both:
+           Step 1: POST /oidc/v1/token   (OAuth client-credentials)
            Step 2: POST /api/2.0/postgres/credentials  (credential mint)
          ================================================================ -->
     <http:request-config name="Databricks_HTTP">
@@ -76,87 +80,67 @@
 
     <!-- ================================================================
          Object Store: in-memory cache for the Lakebase DB credential.
-         The refresh-lakebase-token flow writes here every 45 minutes.
-         persistent="false": token lives for the JVM lifetime only.
+         refresh-lakebase-token writes here so diagnostic flows can inspect
+         the credential expire_time.
          ================================================================ -->
     <os:object-store name="TokenStore" persistent="false"/>
 
     <!-- ================================================================
          DB Config — Lakebase PostgreSQL Connection
 
-         Technique (b): the password DataWeave expression calls
-         LakebaseDataSource::getPassword() via Java interop. This static
-         method reads from an AtomicReference populated by the refresh flow.
+         Rotation mechanism (LakebaseDriver proxy):
+           driverClassName="...LakebaseDriver" uses a jdbc:lakebase:// URL.
+           HikariCP calls LakebaseDriver.connect() for each new PHYSICAL
+           connection.  connect() ignores the placeholder password stored in
+           HikariCP's pool config and reads LakebaseDataSource.getPassword()
+           fresh — so the new credential is used immediately after setPassword().
 
-         The Mule DB connector creates the HikariCP pool lazily on the first
-         db:select/insert/etc call. The refresh-lakebase-token scheduler fires
-         with startDelay=0 so setPassword() is called before any CRUD flow
-         handles its first HTTP request.
+           LakebaseDriver logs "cred_suffix=[last6]" on each connect() call,
+           providing empirical evidence of which credential was used per connection.
 
-         For Task-6 rotation-after-expiry: the pool's maxLifetime should be set
-         to the credential TTL so HikariCP evicts connections and re-calls
-         connect(), which re-evaluates this DataWeave expression against the
-         then-current AtomicReference value (updated by each scheduled refresh).
+         maxPoolSize="5": controls how many physical connections HikariCP maintains.
+         HikariCP's default maxLifetime=30 min recycles connections over time;
+         for demo purposes the rotation proof relies on pool expansion / new
+         connections being created during load, or natural lifecycle.
          ================================================================ -->
     <db:config name="Lakebase_DB">
         <db:generic-connection
-            url="jdbc:postgresql://${pg.host}:5432/${pg.database}?sslmode=require"
-            driverClassName="org.postgresql.Driver"
+            url="jdbc:lakebase://${pg.host}:5432/${pg.database}?sslmode=require"
+            driverClassName="com.example.mulesoft.lakebase.LakebaseDriver"
             user="${pg.user}"
-            password="#[%dw 2.0
-import java!com::example::mulesoft::lakebase::LakebaseDataSource as LDS
----
-LDS::getPassword()]"/>
+            password="placeholder"/>
     </db:config>
 
     <!-- ================================================================
          Flow: refresh-lakebase-token
-         Scheduled every 2700 seconds (45 minutes) with startDelay=0 so it
-         fires immediately on startup, ensuring a valid credential is ready
-         before the first HTTP request arrives and triggers db:select.
+
+         NOTE: scheduler frequency set to 60 s for rotation demo/proof.
+         Restore to frequency="2700" (45 min) before production use.
 
          Steps:
            1. Obtain a Databricks OAuth token via client-credentials grant.
-           2. Mint a Lakebase database credential from the token.
-              REST: POST /api/2.0/postgres/credentials
-                    { "endpoint": "${lakebase.endpointPath}" }
-              Response: { "token": "...", "expire_time": "..." }
-           3. Inject the credential into LakebaseDataSource via invoke-static.
-           4. Store the credential in TokenStore for diagnostic inspection.
+           2. Mint a Lakebase database credential.
+           3. Materialise the streaming HTTP response into a java.util.Map.
+           4. Call setPassword(token) — updates the AtomicReference.
+              The NEXT new physical connection from HikariCP reads this value.
+           5. Store credential in TokenStore for diagnostics.
          ================================================================ -->
     <flow name="refresh-lakebase-token">
         <scheduler>
+            <!-- DEMO: 60 s to prove rotation. RESTORE TO 2700 BEFORE PRODUCTION. -->
             <scheduling-strategy>
-                <fixed-frequency frequency="2700" startDelay="0" timeUnit="SECONDS"/>
+                <fixed-frequency frequency="60" startDelay="0" timeUnit="SECONDS"/>
             </scheduling-strategy>
         </scheduler>
 
-        <!--
-          Step 1: Obtain a Databricks OAuth token via client-credentials.
-          POST https://${databricks.host}/oidc/v1/token
-          Content-Type: application/x-www-form-urlencoded
-          Body: grant_type=client_credentials
-                client_id, client_secret (from config), scope=all-apis
-          Response: { "access_token": "...", "token_type": "Bearer", "expires_in": 3600 }
-        -->
+        <!-- Step 1: Databricks OAuth token (client-credentials) -->
         <set-payload value="#['grant_type=client_credentials&amp;client_id=' ++ p('databricks.client.id') ++ '&amp;client_secret=' ++ p('databricks.client.secret') ++ '&amp;scope=all-apis']"/>
         <http:request config-ref="Databricks_HTTP" method="POST" path="/oidc/v1/token">
             <http:headers>#[{ 'Content-Type': 'application/x-www-form-urlencoded' }]</http:headers>
         </http:request>
         <set-variable variableName="databricksAccessToken" value="#[payload.access_token]"/>
 
-        <!--
-          Step 2: Mint the Lakebase database credential.
-          POST https://${databricks.host}/api/2.0/postgres/credentials
-          Authorization: Bearer {databricksAccessToken}
-          Content-Type: application/json
-          Body: { "endpoint": "projects/mulesoft-lakebase-demo/branches/production/endpoints/primary" }
-          Response: { "token": "...", "expire_time": "..." }
-
-          REST call confirmed via databricks CLI debug output.
-          SP (client_id 7a31531d-...) confirmed to receive HTTP 200.
-          No additional grant was required; SP is project owner.
-        -->
+        <!-- Step 2: Mint Lakebase credential -->
         <set-payload value="#[output application/json --- { endpoint: p('lakebase.endpointPath') }]"/>
         <http:request config-ref="Databricks_HTTP" method="POST" path="/api/2.0/postgres/credentials">
             <http:headers>#[{
@@ -164,49 +148,39 @@ LDS::getPassword()]"/>
                 'Content-Type': 'application/json'
             }]</http:headers>
         </http:request>
-        <!-- Store token; expiry for logging only. The token itself is a long
-             JWT string that Mule keeps as a lazy CursorProvider; the Binary
-             coercion in java:args below forces full materialisation. -->
-        <!-- Materialise the streaming HTTP JSON response into a concrete
-             java.util.Map so that field access below returns java.lang.String
-             values (not lazy Mule cursor types that java:invoke-static rejects). -->
+
+        <!--
+          Step 3: Materialise the streaming HTTP JSON response into a concrete
+          java.util.Map. Mule 4 represents large Strings as lazy CursorProviders;
+          "output application/java" forces full materialisation so that
+          payload.token is a concrete java.lang.String.
+        -->
         <set-payload value="#[%dw 2.0 output application/java --- payload]"/>
         <set-variable variableName="dbToken" value="#[payload.token]"/>
         <set-variable variableName="dbTokenExpiry" value="#[(payload.expire_time default 'unknown')]"/>
 
         <!--
-          Step 3: Inject the fresh credential into LakebaseDataSource so the next
-          db:generic-connection pool creation (or Task-6 pool re-connection)
-          returns a valid password. java:invoke-static requires no Spring bean;
-          it calls the static setPassword(String) method directly.
+          Step 4: Update the AtomicReference in LakebaseDataSource.
+          The NEXT call to LakebaseDriver.connect() will read this new value.
+
+          arg0 is the compiled parameter name (javac without -parameters flag).
         -->
-        <!-- setPassword accepts byte[] because Mule 4 represents large Strings
-             as lazy CursorProviders; "as Binary" is the one DW coercion that
-             forces full cursor materialisation before the Java module receives it. -->
-        <!-- vars.dbToken is now a concrete java.lang.String (payload was
-             materialised to java.util.Map above). The Java module maps the
-             String value directly to setPassword(String). -->
-        <!-- Java module matches args by compiled parameter name. Without the
-             javac -parameters flag, the name is arg0, not "password". -->
         <java:invoke-static class="com.example.mulesoft.lakebase.LakebaseDataSource"
                             method="setPassword(String)">
             <java:args>#[{ arg0: vars.dbToken }]</java:args>
         </java:invoke-static>
 
-        <!--
-          Step 4: Store the credential in the Object Store for diagnostic inspection.
-        -->
+        <!-- Step 5: Store in Object Store for diagnostic inspection -->
         <os:store objectStore="TokenStore" key="lakebase-pg-token">
             <os:value>#[vars.dbToken]</os:value>
         </os:store>
 
-        <logger level="INFO" message="#['Refreshed Lakebase DB credential; expire_time=' ++ vars.dbTokenExpiry]"/>
+        <logger level="INFO" message="#['[refresh-lakebase-token] Credential rotated; expire_time=' ++ vars.dbTokenExpiry ++ ' (next HikariCP connect() will use new cred)']"/>
     </flow>
 
     <!-- ================================================================
          Flow: list-customers
-         GET /customers
-         Returns all rows from demo.customers ordered by id.
+         GET /customers — returns all rows from demo.customers.
          ================================================================ -->
     <flow name="list-customers">
         <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="GET"/>
@@ -217,9 +191,7 @@ LDS::getPassword()]"/>
     </flow>
 
     <!-- ================================================================
-         Flow: get-customer
-         GET /customers/{id}
-         Returns the single row matching the given id.
+         Flow: get-customer — GET /customers/{id}
          ================================================================ -->
     <flow name="get-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="GET"/>
@@ -231,9 +203,7 @@ LDS::getPassword()]"/>
     </flow>
 
     <!-- ================================================================
-         Flow: create-customer
-         POST /customers
-         Body: JSON with name, email, tier fields. Returns the created row.
+         Flow: create-customer — POST /customers
          ================================================================ -->
     <flow name="create-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="POST"/>
@@ -245,9 +215,7 @@ LDS::getPassword()]"/>
     </flow>
 
     <!-- ================================================================
-         Flow: update-customer
-         PATCH /customers/{id}
-         Body: JSON with tier field. Returns the updated row.
+         Flow: update-customer — PATCH /customers/{id}
          ================================================================ -->
     <flow name="update-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="PATCH"/>
@@ -259,9 +227,7 @@ LDS::getPassword()]"/>
     </flow>
 
     <!-- ================================================================
-         Flow: delete-customer
-         DELETE /customers/{id}
-         Returns 204 No Content on success (Mule default for empty payload).
+         Flow: delete-customer — DELETE /customers/{id}
          ================================================================ -->
     <flow name="delete-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="DELETE"/>

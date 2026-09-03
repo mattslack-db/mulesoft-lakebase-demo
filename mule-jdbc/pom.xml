@@ -78,6 +78,23 @@
             <version>1.2.7</version>
             <classifier>mule-plugin</classifier>
         </dependency>
+
+        <!--
+          NOTE: mule-spring-module 1.3.5 was investigated as the registry-wiring
+          mechanism for db:data-source-connection but could not be loaded on
+          Mule CE 4.4.0 in this Docker image: the spring module plugin classloader
+          requires org.springframework.beans.factory.*, org.springframework.context.*,
+          and org.springframework.security.* but Mule's container classloader does
+          not export Spring Framework packages, and the plugin classloader chain does
+          not delegate to the app classloader for those packages. Adding those JARs
+          as app deps + exporting their packages in mule-artifact.json did not resolve
+          the chain because spring-beans itself references spring-context etc.
+
+          Alternative chosen: LakebaseDriver proxy JDBC driver (see LakebaseDriver.java).
+          The proxy driver intercepts HikariCP's Driver.connect() call for each new
+          physical connection and injects CURRENT_PASSWORD.get() at that moment,
+          eliminating the need for any Spring bean wiring.
+        -->
     </dependencies>
 
     <build>
