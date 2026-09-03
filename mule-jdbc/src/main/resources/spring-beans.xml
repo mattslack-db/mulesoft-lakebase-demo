@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring bean definitions for the Mule JDBC app.
+
+  LakebaseDataSource is registered as a singleton bean so Mule's DB connector
+  can reference it via db:data-source-connection dataSourceRef="lakebaseDS".
+
+  The jdbcUrl and user properties are resolved from Mule's config.yaml values
+  via the mule-spring-module's property placeholder registrar. The password is
+  NOT configured here — it is injected at runtime by the refresh-lakebase-token
+  flow via java:invoke-static LakebaseDataSource.setPassword(String).
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+           http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="lakebaseDS"
+          class="com.example.mulesoft.lakebase.LakebaseDataSource"
+          scope="singleton">
+        <property name="jdbcUrl"
+                  value="jdbc:postgresql://${pg.host}:5432/${pg.database}?sslmode=require"/>
+        <property name="user" value="${pg.user}"/>
+    </bean>
+
+</beans>

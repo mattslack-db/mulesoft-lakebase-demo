@@ -60,13 +60,23 @@
         <!--
             PostgreSQL JDBC Driver.
             Must be packaged inside the Mule application (default scope = compile).
-            The DB Connector's generic-connection loads this driver class:
-              driverClassName="org.postgresql.Driver"
+            LakebaseDataSource loads this driver class via Class.forName:
+              org.postgresql.Driver
         -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>${postgresql.driver.version}</version>
+        </dependency>
+
+        <!-- Java Module (CE): provides java:invoke-static so the refresh flow
+             can call LakebaseDataSource.setPassword(String) to rotate the
+             credential at runtime without an EE scripting module. -->
+        <dependency>
+            <groupId>org.mule.module</groupId>
+            <artifactId>mule-java-module</artifactId>
+            <version>1.2.7</version>
+            <classifier>mule-plugin</classifier>
         </dependency>
     </dependencies>
 
