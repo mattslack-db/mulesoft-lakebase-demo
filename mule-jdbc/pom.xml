@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example.mulesoft.lakebase</groupId>
+    <artifactId>mule-jdbc</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>mule-application</packaging>
+
+    <name>MuleSoft Lakebase Demo — JDBC App (App 2)</name>
+    <description>
+        Mule 4 app exposing JDBC CRUD over /customers via a direct PostgreSQL connection
+        to Databricks Lakebase, with a scheduled flow that refreshes the Lakebase database
+        credential (Phase-2 spike for token injection into the DB connection pool).
+    </description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- CE-compatible connector/driver versions; verified buildable in Task-1 spike -->
+        <mule.version>4.4.0</mule.version>
+        <mule.db.connector.version>1.14.0</mule.db.connector.version>
+        <mule.objectstore.connector.version>1.2.1</mule.objectstore.connector.version>
+        <mule.http.connector.version>1.7.3</mule.http.connector.version>
+        <postgresql.driver.version>42.6.0</postgresql.driver.version>
+        <mule.maven.plugin.version>4.10.0</mule.maven.plugin.version>
+    </properties>
+
+    <dependencies>
+        <!-- Database Connector: db:config, db:select, db:insert, db:update, db:delete -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-db-connector</artifactId>
+            <version>${mule.db.connector.version}</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+
+        <!-- Object Store Connector: os:object-store, os:store, os:retrieve -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-objectstore-connector</artifactId>
+            <version>${mule.objectstore.connector.version}</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+
+        <!-- HTTP Connector: HTTP listener (inbound) + HTTP request (outbound OAuth calls) -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-http-connector</artifactId>
+            <version>${mule.http.connector.version}</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+
+        <!-- EE mule-secure-configuration-property-module removed (Task 2):
+             secret injected via DATABRICKS_CLIENT_SECRET env var instead. -->
+
+        <!--
+            PostgreSQL JDBC Driver.
+            Must be packaged inside the Mule application (default scope = compile).
+            LakebaseDataSource loads this driver class via Class.forName:
+              org.postgresql.Driver
+        -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.driver.version}</version>
+        </dependency>
+
+        <!-- Java Module (CE): provides java:invoke-static so the refresh flow
+             can call LakebaseDataSource.setPassword(String) to rotate the
+             credential at runtime without an EE scripting module. -->
+        <dependency>
+            <groupId>org.mule.module</groupId>
+            <artifactId>mule-java-module</artifactId>
+            <version>1.2.7</version>
+            <classifier>mule-plugin</classifier>
+        </dependency>
+
+        <!--
+          NOTE: mule-spring-module 1.3.5 was investigated as the registry-wiring
+          mechanism for db:data-source-connection but could not be loaded on
+          Mule CE 4.4.0 in this Docker image: the spring module plugin classloader
+          requires org.springframework.beans.factory.*, org.springframework.context.*,
+          and org.springframework.security.* but Mule's container classloader does
+          not export Spring Framework packages, and the plugin classloader chain does
+          not delegate to the app classloader for those packages. Adding those JARs
+          as app deps + exporting their packages in mule-artifact.json did not resolve
+          the chain because spring-beans itself references spring-context etc.
+
+          Alternative chosen: LakebaseDriver proxy JDBC driver (see LakebaseDriver.java).
+          The proxy driver intercepts HikariCP's Driver.connect() call for each new
+          physical connection and injects CURRENT_PASSWORD.get() at that moment,
+          eliminating the need for any Spring bean wiring.
+        -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.mule.tools.maven</groupId>
+                <artifactId>mule-maven-plugin</artifactId>
+                <version>${mule.maven.plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <classifier>mule-application</classifier>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>mulesoft-releases</id>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
+            <layout>default</layout>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>mulesoft-releases</id>
+            <name>MuleSoft Releases Repository (public mirror)</name>
+            <url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url>
+            <layout>default</layout>
+        </pluginRepository>
+    </pluginRepositories>
+
+</project>

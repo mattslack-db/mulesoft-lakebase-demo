@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MuleSoft Lakebase Demo — Data API App (App 1)
+
+  Exposes five CRUD flows over /customers.
+  Authenticates to the Databricks Lakebase Data API (PostgREST) via
+  OAuth 2.0 client-credentials grant type.
+
+  Data API base URL shape:
+    https://${dataapi.host}${dataapi.basePath}/demo/customers
+  Example (real values live in config-local.yaml, never committed):
+    https://<PG_HOST>
+      /api/2.0/workspace/<WORKSPACE_ID>/rest/databricks_postgres/demo/customers
+
+  Phase 3 validation: xmllint noout flag (well-formedness only).
+  Phase 2 build/run: mvn package inside mule-data-api/ with Mule tooling.
+-->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+          http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+          http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/oauth
+          http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd">
+
+    <!-- Load configuration properties from config.yaml (committed) and
+         config-local.yaml (git-ignored, for local overrides).
+         Mule resolves system/env properties inside YAML values, so
+         databricks.client.secret: "${DATABRICKS_CLIENT_SECRET}" picks up
+         the env var at runtime. -->
+    <configuration-properties file="config.yaml"/>
+
+    <!-- ================================================================
+         HTTP Listener Config
+         Exposes this Mule app on all interfaces at port 8081.
+         ================================================================ -->
+    <http:listener-config name="HTTP_Listener">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+
+    <!-- ================================================================
+         HTTP Request Config — Databricks Lakebase Data API
+         Uses OAuth 2.0 client-credentials grant type.
+         Token URL: https://${databricks.host}/oidc/v1/token
+         Scopes: all-apis (required by Databricks workspace OAuth)
+         basePath: full PostgREST path prefix (see config.yaml / config-local.yaml)
+         ================================================================ -->
+    <http:request-config name="DataApi_HTTP" basePath="${dataapi.basePath}">
+        <http:request-connection host="${dataapi.host}" port="443" protocol="HTTPS">
+            <!-- authentication is a child of request-connection in HTTP connector 1.7.x -->
+            <http:authentication>
+                <oauth:client-credentials-grant-type
+                    clientId="${databricks.client.id}"
+                    clientSecret="${databricks.client.secret}"
+                    tokenUrl="https://${databricks.host}/oidc/v1/token"
+                    scopes="all-apis"/>
+            </http:authentication>
+        </http:request-connection>
+    </http:request-config>
+
+    <!-- ================================================================
+         Flow: list-customers
+         GET /customers → Data API GET /demo/customers?order=id
+         Returns all customers ordered by id.
+         ================================================================ -->
+    <flow name="list-customers">
+        <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="GET"/>
+        <http:request config-ref="DataApi_HTTP" method="GET" path="/demo/customers">
+            <http:query-params>#[{ 'order': 'id' }]</http:query-params>
+        </http:request>
+    </flow>
+
+    <!-- ================================================================
+         Flow: get-customer
+         GET /customers/{id} → Data API GET /demo/customers?id=eq.{id}
+         Returns the single customer matching the given id.
+         ================================================================ -->
+    <flow name="get-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="GET"/>
+        <http:request config-ref="DataApi_HTTP" method="GET" path="/demo/customers">
+            <http:query-params>#[{ 'id': 'eq.' ++ attributes.uriParams.id }]</http:query-params>
+        </http:request>
+    </flow>
+
+    <!-- ================================================================
+         Flow: create-customer
+         POST /customers → Data API POST /demo/customers
+         Body: JSON customer object. Returns created record (Prefer: return=representation).
+         ================================================================ -->
+    <flow name="create-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="POST"/>
+        <http:request config-ref="DataApi_HTTP" method="POST" path="/demo/customers">
+            <http:headers>#[{ 'Prefer': 'return=representation', 'Content-Type': 'application/json' }]</http:headers>
+        </http:request>
+    </flow>
+
+    <!-- ================================================================
+         Flow: update-customer
+         PATCH /customers/{id} → Data API PATCH /demo/customers?id=eq.{id}
+         Body: JSON partial update. Returns updated record (Prefer: return=representation).
+         ================================================================ -->
+    <flow name="update-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="PATCH"/>
+        <http:request config-ref="DataApi_HTTP" method="PATCH" path="/demo/customers">
+            <!-- headers must precede query-params in HTTP connector 1.7.x schema -->
+            <http:headers>#[{ 'Prefer': 'return=representation', 'Content-Type': 'application/json' }]</http:headers>
+            <http:query-params>#[{ 'id': 'eq.' ++ attributes.uriParams.id }]</http:query-params>
+        </http:request>
+    </flow>
+
+    <!-- ================================================================
+         Flow: delete-customer
+         DELETE /customers/{id} → Data API DELETE /demo/customers?id=eq.{id}
+         Returns 204 No Content on success.
+         ================================================================ -->
+    <flow name="delete-customer">
+        <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="DELETE"/>
+        <http:request config-ref="DataApi_HTTP" method="DELETE" path="/demo/customers">
+            <http:query-params>#[{ 'id': 'eq.' ++ attributes.uriParams.id }]</http:query-params>
+        </http:request>
+    </flow>
+
+</mule>

@@ -1,0 +1,22 @@
+# MuleSoft Lakebase Demo — Data API App configuration (committed)
+#
+# Non-secret values are stored here. The client secret is read from the
+# DATABRICKS_CLIENT_SECRET environment variable at runtime (Mule resolves
+# system/env properties inside YAML string values).
+#
+# Key layout matches property references in data-api.xml:
+#   ${dataapi.host}             — Lakebase Data API hostname
+#   ${dataapi.basePath}         — Data API path prefix (workspace + database path)
+#   ${databricks.host}          — Databricks workspace hostname (for OAuth token URL)
+#   ${databricks.client.id}     — Service principal client ID (OAuth M2M, non-secret)
+#   ${databricks.client.secret} — Resolved from DATABRICKS_CLIENT_SECRET env var (never committed)
+
+dataapi:
+  host: "<PG_HOST>"
+  basePath: "/api/2.0/workspace/<WORKSPACE_ID>/rest/databricks_postgres"
+
+databricks:
+  host: "<WORKSPACE_HOST>"
+  client:
+    id: "<SP_CLIENT_ID>"
+    secret: "${DATABRICKS_CLIENT_SECRET}"

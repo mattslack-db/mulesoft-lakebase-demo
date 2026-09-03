@@ -1,0 +1,52 @@
+# ============================================================
+# MuleSoft Lakebase Demo — local Docker Compose
+#
+# Prerequisites:
+#   cp .env.example .env
+#   # edit .env and set DATABRICKS_CLIENT_SECRET
+#
+# Both apps expose Mule's internal port 8081.  To run them simultaneously
+# they are mapped to different HOST ports:
+#   mule-data-api  → localhost:8081
+#   mule-jdbc      → localhost:8082
+#
+# Run both:
+#   docker compose up --build
+#
+# Run one app:
+#   docker compose up --build mule-data-api
+#   docker compose up --build mule-jdbc
+#
+# The secret is NEVER baked into the image; it is injected at runtime
+# via the .env file (git-ignored) or by exporting DATABRICKS_CLIENT_SECRET
+# in your shell before calling docker compose.
+# ============================================================
+services:
+  mule-data-api:
+    build:
+      context: .
+      dockerfile: mule-data-api/Dockerfile
+    image: mule-data-api:local
+    ports:
+      - "8081:8081"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Pass through from caller's shell when .env is absent.
+      - DATABRICKS_CLIENT_SECRET
+    restart: "no"
+
+  mule-jdbc:
+    build:
+      context: .
+      dockerfile: mule-jdbc/Dockerfile
+    image: mule-jdbc:local
+    ports:
+      - "8082:8081"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABRICKS_CLIENT_SECRET
+    restart: "no"
