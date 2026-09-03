@@ -1,6 +1,8 @@
 # MuleSoft ↔ Lakebase Demo — Connection Facts
 
-Non-secret connection values for the demo environment.
+Non-secret connection values for the demo environment. The `<PLACEHOLDER>` values
+below are filled in from your own Databricks workspace, service principal, and Lakebase
+endpoint when you run the demo.
 **Do not add secrets to this file.** Credentials live in `config-local.yaml` (git-ignored).
 
 ## Workspace

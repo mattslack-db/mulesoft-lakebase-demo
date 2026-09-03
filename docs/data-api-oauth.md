@@ -135,10 +135,11 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA demo TO "<SP_CLIENT_ID>";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA demo TO "<SP_CLIENT_ID>";
 ```
 
-Substitute `<SP_CLIENT_ID>` with the actual UUID at apply time:
+Substitute `<SP_CLIENT_ID>` with your service principal's UUID at apply time
+(set `SP_CLIENT_ID` in your shell first):
 
 ```bash
-sed 's/<SP_CLIENT_ID>/<SP_CLIENT_ID>/g' infra/data-api-role.sql \
+sed "s/<SP_CLIENT_ID>/${SP_CLIENT_ID}/g" infra/data-api-role.sql \
   | PGPASSWORD="$(databricks postgres generate-database-credential \
       projects/mulesoft-lakebase-demo/branches/production/endpoints/primary \
       --profile mulesoft-lakebase-demo -o json | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')" \
