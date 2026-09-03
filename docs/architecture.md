@@ -32,7 +32,7 @@ sequenceDiagram
     OI-->>ML: access_token + expires_in=3600
     ML->>DA: HTTP request + Authorization: Bearer {access_token}
     Note over DA: Validate Databricks JWT, extract .sub = SP_CLIENT_ID
-    DA->>PG: SET ROLE "SP_CLIENT_ID"; execute SQL
+    DA->>PG: SET ROLE "SP_CLIENT_ID", then execute SQL
     PG-->>DA: result rows
     DA-->>ML: JSON (PostgREST response)
     ML-->>C: HTTP response
@@ -70,7 +70,7 @@ sequenceDiagram
     end
 
     C->>ML: HTTP request /customers
-    Note over ML,TS: Phase-2 spike — request-time token read is the target design; current authored app uses a bootstrap-token fallback
+    Note over ML,TS: Phase-2 spike — request-time token read is the target design. Current authored app uses a bootstrap-token fallback
     ML->>TS: read "lakebase-pg-token"
     TS-->>ML: short-lived credential
     ML->>PG: JDBC (user=SP_UUID, password=credential, sslmode=require)
