@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ABANDONED — NOT used at runtime. Kept as a reference artifact.
+
+  Context: mule-spring-module 1.3.5 on Mule CE 4.4.0 cannot be loaded because
+  its plugin classloader cannot resolve org.springframework.beans.factory.*,
+  org.springframework.context.*, and org.springframework.security.* — those
+  packages are not exported from either the Mule container classloader or the
+  app classloader to plugin classloaders. Adding them as app dependencies and
+  exporting via mule-artifact.json exportedPackages did not resolve the
+  classloader chain due to additional transitive Spring packages.
+
+  The rotation problem was solved instead via LakebaseDriver.java (a proxy JDBC
+  driver that intercepts Driver.connect() and injects the current credential at
+  connection-creation time). No Spring bean wiring is required.
+
+  ----
+
+  Original description: Spring bean definitions — would have been ACTIVE (used
+  at runtime via <spring:config> in jdbc.xml).
+
+  LakebaseDataSource is a singleton bean wrapping an internal HikariCP pool.
+  Spring injects jdbcUrl and user from Mule config properties, then calls
+  init() which creates the initial pool and sets the static INSTANCE reference.
+
+  Password rotation: the Mule refresh-lakebase-token flow calls
+  java:invoke-static LakebaseDataSource.setPassword(String), which creates a
+  NEW HikariCP pool with the fresh credential, atomically swaps it in, and
+  closes the old pool (graceful drain). The next getConnection() call goes to
+  the new pool — rotation propagates without any app restart.
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+           http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="lakebaseDS"
+          class="com.example.mulesoft.lakebase.LakebaseDataSource"
+          scope="singleton"
+          init-method="init">
+        <property name="jdbcUrl"
+                  value="jdbc:postgresql://${pg.host}:5432/${pg.database}?sslmode=require"/>
+        <property name="user" value="${pg.user}"/>
+    </bean>
+
+</beans>
