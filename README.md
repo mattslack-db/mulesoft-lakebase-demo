@@ -74,11 +74,27 @@ To (re-)apply the full Data API and SP role setup:
 bash infra/data-api-setup.sh mulesoft-lakebase-demo <SP_CLIENT_ID> mulesoft-lakebase-demo
 ```
 
-### Phase 2 — Run locally (forthcoming)
+### Phase 2 — Run locally (free Mule Kernel CE + Docker, no Anypoint)
 
-Import `mule-data-api/` and `mule-jdbc/` into Anypoint Studio (or run via
-`mvn mule:run`) and drive CRUD via `curl` against `localhost:8081` and `localhost:8082`.
-Phase 2 also resolves the JDBC token-injection spike (see `docs/jdbc-token-refresh.md`).
+Both OAuth chains run through Mule in Docker using the free Community Edition runtime
+(`javastreets/mule:CE-4.4.0-20221024`). No Anypoint account, no EE license.
+
+```bash
+cp .env.example .env          # fill in DATABRICKS_CLIENT_SECRET
+docker compose up --build     # builds both apps and starts them
+```
+
+- **Data API app** → `localhost:8081`: HTTP + OAuth client-credentials → Bearer →
+  PostgREST `/demo/customers`. Full 5-op CRUD verified (Task 4).
+- **JDBC app** → `localhost:8082`: Database connector; Postgres password is a
+  Databricks-minted Lakebase credential that auto-rotates via the `LakebaseDriver`
+  proxy JDBC driver (Task 5 / Task 6). 22 rotations verified; all requests remained
+  HTTP 200 throughout.
+
+See [docs/phase2-local-run.md](docs/phase2-local-run.md) for the full no-Anypoint
+setup guide (prerequisites, build, secret injection, CE porting lessons).
+See [docs/phase2-run.md](docs/phase2-run.md) for the complete curl CRUD matrices
+with live response bodies for both apps.
 
 ### Phase 1 — CloudHub deploy (forthcoming)
 

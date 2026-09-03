@@ -162,7 +162,7 @@ docker-compose down
 
 ---
 
-# Phase 2 — JDBC App: CRUD over Rotating OAuth Credential (Run Notes)
+## Phase 2 — JDBC App: CRUD over Rotating OAuth Credential (Run Notes)
 
 ## Summary
 
@@ -309,7 +309,14 @@ Response (`HTTP 200`, back to 3 seed rows):
 
 ---
 
-## Scale-to-Zero / Cold-Start Reconnection Note
+## HikariCP Startup Race (Pool Init vs. Credential Scheduler)
+
+> **Scope of this note:** what is documented here is the **HikariCP pool-init /
+> credential-scheduler startup race** inside the container — the window between
+> container start and the first scheduler execution.  This is NOT a demonstration
+> of Lakebase's own **service-side idle scale-to-zero** (branch suspension / resume);
+> that scenario was not separately exercised in Phase 2 and remains untested
+> (future work — see note at bottom of this section).
 
 On container start, the `refresh-lakebase-token` scheduler fires at `startDelay=0`.
 HikariCP pool initialization races against the first scheduler execution. During
@@ -324,6 +331,15 @@ No requests are lost: the first HTTP call to a listener endpoint after idle is
 handled normally, with the pool expanding using the first available credential.
 No manual retry is required; the benign null return causes HikariCP to
 re-try the connection immediately.
+
+**Lakebase service-side idle scale-to-zero (untested / future work):** Lakebase may
+suspend a branch that has been idle for an extended period.  When a suspended branch
+resumes, any JDBC connections already held by HikariCP's pool may become stale.
+Handling this scenario (service-side suspension → resume → HikariCP detecting and
+evicting stale connections) was **not demonstrated** in Phase 2.  Recommended future
+work: configure HikariCP `keepaliveTime` and `connectionTimeout` appropriately, or
+verify that `maxLifetime` eviction combined with the `LakebaseDriver` rotation cycle
+is sufficient to recover from branch resumption without a container restart.
 
 ---
 

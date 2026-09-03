@@ -211,7 +211,11 @@
 
          1. Capture request fields into variables (payload changes after db:insert).
          2. db:insert — plain INSERT, no RETURNING.
-         3. db:select  — fetch the newly created row by email + latest id.
+         3. db:select  — fetch the newly created row; email is UNIQUE so the
+                        WHERE clause matches exactly one row.
+                        ORDER BY id DESC LIMIT 1 is defensive (handles any
+                        concurrent insert with the same email gracefully by
+                        returning the latest record rather than an error).
          ================================================================ -->
     <flow name="create-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="POST"/>
