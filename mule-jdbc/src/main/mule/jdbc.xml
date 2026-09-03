@@ -204,25 +204,53 @@
 
     <!-- ================================================================
          Flow: create-customer — POST /customers
+
+         Mule CE 4.4.0 limitation: db:insert uses JDBC executeUpdate() and
+         db:select validates SQL type (rejects INSERT). Neither supports
+         PostgreSQL RETURNING *.  Work-around: INSERT then SELECT.
+
+         1. Capture request fields into variables (payload changes after db:insert).
+         2. db:insert — plain INSERT, no RETURNING.
+         3. db:select  — fetch the newly created row by email + latest id.
          ================================================================ -->
     <flow name="create-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers" allowedMethods="POST"/>
+        <set-variable variableName="reqName"  value="#[payload.name]"/>
+        <set-variable variableName="reqEmail" value="#[payload.email]"/>
+        <set-variable variableName="reqTier"  value="#[payload.tier default 'standard']"/>
         <db:insert config-ref="Lakebase_DB">
-            <db:sql>INSERT INTO demo.customers (name, email, tier) VALUES (:name, :email, :tier) RETURNING *</db:sql>
-            <db:input-parameters>#[{ 'name': payload.name, 'email': payload.email, 'tier': payload.tier default 'standard' }]</db:input-parameters>
+            <db:sql>INSERT INTO demo.customers (name, email, tier) VALUES (:name, :email, :tier)</db:sql>
+            <db:input-parameters>#[{ 'name': vars.reqName, 'email': vars.reqEmail, 'tier': vars.reqTier }]</db:input-parameters>
         </db:insert>
+        <db:select config-ref="Lakebase_DB">
+            <db:sql>SELECT id, name, email, tier, created_at FROM demo.customers WHERE email = :email ORDER BY id DESC LIMIT 1</db:sql>
+            <db:input-parameters>#[{ 'email': vars.reqEmail }]</db:input-parameters>
+        </db:select>
         <set-payload value="#[output application/json --- payload]"/>
     </flow>
 
     <!-- ================================================================
          Flow: update-customer — PATCH /customers/{id}
+
+         Same Mule CE 4.4.0 limitation as create-customer.
+         Work-around: UPDATE then SELECT.
+
+         1. Capture URI param id and tier into variables before db:update.
+         2. db:update — plain UPDATE, no RETURNING.
+         3. db:select  — re-fetch the updated row by id.
          ================================================================ -->
     <flow name="update-customer">
         <http:listener config-ref="HTTP_Listener" path="/customers/{id}" allowedMethods="PATCH"/>
+        <set-variable variableName="customerId" value="#[attributes.uriParams.id]"/>
+        <set-variable variableName="newTier"    value="#[payload.tier]"/>
         <db:update config-ref="Lakebase_DB">
-            <db:sql>UPDATE demo.customers SET tier = :tier WHERE id = :id RETURNING *</db:sql>
-            <db:input-parameters>#[{ 'id': attributes.uriParams.id, 'tier': payload.tier }]</db:input-parameters>
+            <db:sql>UPDATE demo.customers SET tier = :tier WHERE id = :id</db:sql>
+            <db:input-parameters>#[{ 'id': vars.customerId, 'tier': vars.newTier }]</db:input-parameters>
         </db:update>
+        <db:select config-ref="Lakebase_DB">
+            <db:sql>SELECT id, name, email, tier, created_at FROM demo.customers WHERE id = :id</db:sql>
+            <db:input-parameters>#[{ 'id': vars.customerId }]</db:input-parameters>
+        </db:select>
         <set-payload value="#[output application/json --- payload]"/>
     </flow>
 
