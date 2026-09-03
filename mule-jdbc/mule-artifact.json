@@ -1,4 +1,19 @@
 {
   "minMuleVersion": "4.4.0",
-  "requiredProduct": "MULE"
+  "requiredProduct": "MULE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [
+        "org.postgresql",
+        "org.postgresql.core",
+        "org.postgresql.core.v3",
+        "org.postgresql.ds",
+        "org.postgresql.jdbc",
+        "org.postgresql.ssl",
+        "org.postgresql.util",
+        "com.example.mulesoft.lakebase"
+      ]
+    }
+  }
 }
