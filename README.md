@@ -56,7 +56,11 @@ Both auth chains are **confirmed working** via `infra/smoke-test.sh`:
 
 ## How to Run
 
-### Phase 3 — Verify the infrastructure (current phase)
+The steps below run in build/execution order (verify → run → deploy). The parenthetical
+"Phase N" labels cross-reference the design spec's maturity ladder, where Phase 1 is the
+production target (CloudHub) and higher numbers are the earlier foundations it builds on.
+
+### Step 1 — Verify the infrastructure (Phase 3, current phase)
 
 Prerequisite: Databricks CLI authenticated with the `mulesoft-lakebase-demo` profile,
 `config-local.yaml` present with SP credentials.
@@ -74,7 +78,7 @@ To (re-)apply the full Data API and SP role setup:
 bash infra/data-api-setup.sh mulesoft-lakebase-demo <SP_CLIENT_ID> mulesoft-lakebase-demo
 ```
 
-### Phase 2 — Run locally (free Mule Kernel CE + Docker, no Anypoint)
+### Step 2 — Run locally (Phase 2, free Mule Kernel CE + Docker, no Anypoint)
 
 Both OAuth chains run through Mule in Docker using the free Community Edition runtime
 (`javastreets/mule:CE-4.4.0-20221024`). No Anypoint account, no EE license.
@@ -96,7 +100,7 @@ setup guide (prerequisites, build, secret injection, CE porting lessons).
 See [docs/phase2-run.md](docs/phase2-run.md) for the complete curl CRUD matrices
 with live response bodies for both apps.
 
-### Phase 1 — CloudHub deploy (forthcoming)
+### Step 3 — CloudHub deploy (Phase 1, forthcoming)
 
 Externalize secrets via Anypoint secure properties / CloudHub secure config and deploy
 both apps to a managed Mule runtime.
