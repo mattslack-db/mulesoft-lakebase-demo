@@ -164,7 +164,7 @@ docker-compose down
 
 ## Phase 2 — JDBC App: CRUD over Rotating OAuth Credential (Run Notes)
 
-## Summary
+### Summary
 
 End-to-end verification of the `mule-jdbc` Mule 4 application using the
 `LakebaseDriver` proxy (Task 5) to execute CRUD operations against Lakebase
@@ -174,7 +174,7 @@ All five CRUD calls succeeded against live Lakebase.
 **Verified:** 2026-09-03
 **Environment:** Docker Desktop (local), Mule CE 4.4.0-20221024, Lakebase workspace
 `<WORKSPACE_HOST>`
-**Token rotation proof:** see [task-5-report.md](.superpowers/sdd/2026-09-02-mulesoft-lakebase-oauth-demo-phase2/task-5-report.md) — 22 rotations, `GET /customers` remained HTTP 200 throughout.
+**Token rotation proof:** see [task-5-report.md](../.superpowers/sdd/2026-09-02-mulesoft-lakebase-oauth-demo-phase2/task-5-report.md) — 22 rotations, `GET /customers` remained HTTP 200 throughout.
 
 ---
 

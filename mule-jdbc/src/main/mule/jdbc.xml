@@ -98,9 +98,9 @@
            LakebaseDriver logs "cred_suffix=[last6]" on each connect() call,
            providing empirical evidence of which credential was used per connection.
 
-         maxPoolSize="5": controls how many physical connections HikariCP maintains.
-         HikariCP's default maxLifetime=30 min recycles connections over time;
-         for demo purposes the rotation proof relies on pool expansion / new
+         No explicit pooling profile is set; HikariCP defaults apply
+         (default maxPoolSize=10, maxLifetime=30 min).  Connections are
+         recycled over time; the rotation proof relies on pool expansion / new
          connections being created during load, or natural lifecycle.
          ================================================================ -->
     <db:config name="Lakebase_DB">
